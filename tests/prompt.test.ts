@@ -105,6 +105,17 @@ describe('contrato do prompt', () => {
     assert.deepEqual([...RESPONSE_SCHEMA.required], ['scene_description', 'clues'])
   })
 
+  it('limita o número de pistas no ESQUEMA, não só no texto', () => {
+    // Modelos pequenos ignoram "no máximo 6" escrito em português; a saída
+    // estruturada é imposta pelo decodificador. Cada pista a mais é tempo de
+    // geração, que num modelo local é a maior parte da espera.
+    assert.equal(RESPONSE_SCHEMA.properties.clues.maxItems, 6)
+  })
+
+  it('pede resposta curta, porque cada palavra é espera', () => {
+    assert.match(SYSTEM_PROMPT, /SEJA BREVE/)
+  })
+
   it('todo tipo aceito pelo modelo tem peso definido', () => {
     for (const kind of KNOWN_KINDS) {
       assert.equal(typeof EVIDENCE_WEIGHT[kind], 'number', `sem peso para ${kind}`)

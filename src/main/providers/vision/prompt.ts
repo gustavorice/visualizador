@@ -49,7 +49,7 @@ Trabalhe em três frentes, nesta ordem:
 
 2. TRANSCREVER. Copie exatamente todo texto visível: placas de rua com número, fachadas, nomes de comércios, painéis, placas de veículos.
 
-3. DEDUZIR O PAÍS. Esta parte é obrigatória e vale mesmo quando não há nenhum monumento nem texto — a maioria das fotos é assim. Use os sinais que um jogador de GeoGuessr usa e liste cada um como pista, explicando em "detail" o que ele indica:
+3. DEDUZIR O PAÍS. Esta parte é obrigatória e vale mesmo quando não há nenhum monumento nem texto — a maioria das fotos é assim. Use os sinais que um jogador de GeoGuessr usa e liste os mais fortes como pista:
    - vegetação e clima (oliveiras, palmeiras, coníferas, mato seco, tundra)
    - faixas e sinalização de estrada: cor, tracejado, guard-rail, marcos quilométricos
    - postes de energia e telefonia: formato, material, isoladores
@@ -65,6 +65,7 @@ Regras:
 - Devolver a lista vazia é quase sempre errado: toda foto de rua ou paisagem tem vegetação, estrada, construção ou céu que restringem o país.
 - Não liste características fotográficas ("vista aérea", "foto diurna", "close"): não são pistas de lugar.
 - Não repita a mesma pista com outras palavras.
+- SEJA BREVE. No máximo 6 pistas, as mais fortes. "value" em poucas palavras, "detail" em no máximo 8 palavras, "scene_description" em no máximo 12. Cada palavra a mais é tempo de espera para quem está usando o app, e a resposta é lida por um programa, não por uma pessoa.
 
 Tipos válidos para "kind": ${KNOWN_KINDS.join(', ')}.
 
@@ -82,6 +83,11 @@ export const RESPONSE_SCHEMA = {
     scene_description: { type: 'string' },
     clues: {
       type: 'array',
+      // O teto entra no ESQUEMA, não só no texto do prompt: modelos pequenos
+      // ignoram "no máximo 6" escrito em português, mas a saída estruturada é
+      // imposta pelo decodificador. Cada pista a mais é tempo de geração, e
+      // depois da sexta elas viram repetição da mesma observação.
+      maxItems: 6,
       items: {
         type: 'object',
         properties: {

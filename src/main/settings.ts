@@ -28,7 +28,7 @@ import { log } from './util/logger'
  * provedores simulados para sempre — mudar o padrão só alcançaria instalações
  * novas.
  */
-export const SETTINGS_VERSION = 3
+export const SETTINGS_VERSION = 4
 
 export const DEFAULT_SETTINGS: Settings = {
   version: SETTINGS_VERSION,
@@ -62,7 +62,17 @@ export const DEFAULT_SETTINGS: Settings = {
   // baixo. 2560 não amplia nada (o desktopCapturer nunca ultrapassa o nativo),
   // só evita encolher telas grandes.
   captureMaxWidth: 2560,
-  visionMaxWidth: 1024,
+  /*
+   * Largura da imagem enviada ao modelo de visão.
+   *
+   * Diferente de `captureMaxWidth`, que existe para o OCR e quer resolução: o
+   * modelo de visão não lê letra miúda, ele reconhece cena, vegetação, telhado
+   * e sinalização — e o custo dele cresce com a ÁREA da imagem. Passar de 1024
+   * para 768 corta ~44% dos tokens de imagem, que na primeira metade do tempo
+   * de resposta é praticamente uma divisão pela metade, sem mudar nada do que
+   * o modelo consegue enxergar.
+   */
+  visionMaxWidth: 768,
   jpegQuality: 72,
   stageTimeoutMs: 6000,
   // Generoso de propósito: melhor esperar do que matar a única etapa capaz de
@@ -118,6 +128,13 @@ function migrate(stored: Record<string, unknown>): Partial<Settings> {
     // valores gravados, então precisam ser reescritos.
     next.visionTimeoutMs = DEFAULT_SETTINGS.visionTimeoutMs
     next.totalTimeoutMs = DEFAULT_SETTINGS.totalTimeoutMs
+  }
+
+  if (version < 4) {
+    // v3: a imagem da visão ia em 1024px e o modelo escrevia respostas longas
+    // que o app descartava. Quem já usou o app tem a largura antiga gravada, e
+    // o sintoma — "demora uma eternidade" — é o principal motivo de reclamação.
+    next.visionMaxWidth = DEFAULT_SETTINGS.visionMaxWidth
   }
 
   next.version = SETTINGS_VERSION

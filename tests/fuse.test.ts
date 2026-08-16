@@ -271,6 +271,64 @@ describe('fusão — recusa de afirmar', () => {
     assert.notEqual(resultado.verdict, 'located')
   })
 
+  it('não crava a cidade que o modelo de visão só palpitou', () => {
+    /*
+     * O caso do GeoGuessr: sem texto e sem monumento, o modelo olha o conjunto
+     * e diz "Atenas". Isso geocodifica lindamente — toda cidade geocodifica —,
+     * e o app respondia com veredito fechado sobre um palpite. Como pista ela
+     * continua valendo (vira consulta, sustenta o país); o que ela não pode é
+     * assinar sozinha a resposta.
+     */
+    const palpite = evidence({ kind: 'locality', value: 'Atenas', source: 'vision' })
+    const resultado = fuse({
+      evidence: [palpite],
+      candidates: [
+        candidate({
+          city: 'Atenas',
+          region: 'Ática',
+          country: 'Grécia',
+          countryCode: 'GR',
+          lat: 37.98,
+          lon: 23.72,
+          displayName: 'Atenas, Grécia',
+          score: 0.8,
+          precision: 0.53,
+          supportedBy: [palpite.id],
+          query: 'Atenas'
+        })
+      ],
+      hint: { country: 'Grécia', city: 'Atenas' },
+      setup: SETUP
+    })
+
+    assert.notEqual(resultado.verdict, 'located', resultado.summary)
+    assert.equal(resultado.location?.city, 'Atenas', 'segue aparecendo, como indício')
+  })
+
+  it('a mesma cidade LIDA na tela fecha o veredito', () => {
+    const lida = evidence({ kind: 'locality', value: 'Atenas', source: 'ocr' })
+    const resultado = fuse({
+      evidence: [lida],
+      candidates: [
+        candidate({
+          city: 'Atenas',
+          country: 'Grécia',
+          countryCode: 'GR',
+          lat: 37.98,
+          lon: 23.72,
+          displayName: 'Atenas, Grécia',
+          score: 0.8,
+          precision: 0.53,
+          supportedBy: [lida.id],
+          query: 'Atenas'
+        })
+      ],
+      setup: SETUP
+    })
+
+    assert.equal(resultado.verdict, 'located', resultado.summary)
+  })
+
   it('para no país quando só o país resolveu', () => {
     const a = evidence({ kind: 'vegetation', value: 'oliveiras e mato seco' })
     const b = evidence({ kind: 'architecture', value: 'muro caiado' })

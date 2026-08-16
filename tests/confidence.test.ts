@@ -9,6 +9,7 @@ import {
   clamp01,
   confidenceLabel,
   decideVerdict,
+  isHardEvidence,
   noisyOr,
   uncertaintyKm
 } from '../src/shared/confidence'
@@ -158,5 +159,35 @@ describe('tabelas de pesos', () => {
   it('mantém o teto de confiança abaixo da certeza', () => {
     assert.ok(MAX_CONFIDENCE < 1)
     assert.ok(MAX_CONFIDENCE > THRESHOLDS.high)
+  })
+})
+
+describe('isHardEvidence', () => {
+  it('aceita as pistas que a geocodificação consegue conferir', () => {
+    assert.equal(isHardEvidence({ kind: 'landmark', source: 'vision' }), true)
+    assert.equal(isHardEvidence({ kind: 'street_sign', source: 'ocr' }), true)
+    assert.equal(isHardEvidence({ kind: 'transit', source: 'vision' }), true)
+    assert.equal(isHardEvidence({ kind: 'domain', source: 'ocr' }), true)
+  })
+
+  it('recusa a cidade que o modelo de visão DEDUZIU', () => {
+    /*
+     * Um monumento nomeado passa por uma prova: "Ponte Zhivopisny" resolve
+     * numa coordenada e um nome inventado morre na busca. Um nome de cidade
+     * não passa por prova nenhuma — TODA cidade existente geocodifica,
+     * inclusive a errada. Deixar o palpite fechar veredito era o app cravar
+     * "Atenas" porque a foto tinha cara de Grécia.
+     */
+    assert.equal(isHardEvidence({ kind: 'locality', source: 'vision' }), false)
+  })
+
+  it('aceita a mesma cidade quando ela foi LIDA na tela', () => {
+    assert.equal(isHardEvidence({ kind: 'locality', source: 'ocr' }), true)
+    assert.equal(isHardEvidence({ kind: 'locality', source: 'title' }), true)
+  })
+
+  it('continua recusando o que nunca foi pista dura', () => {
+    assert.equal(isHardEvidence({ kind: 'vegetation', source: 'ocr' }), false)
+    assert.equal(isHardEvidence({ kind: 'language', source: 'vision' }), false)
   })
 })

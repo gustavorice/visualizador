@@ -5,6 +5,7 @@ import { listSources } from './capture/capture'
 import { analyze, cancelAnalysis } from './pipeline/analyze'
 import { getSettings, updateSettings } from './settings'
 import { healthReport, warmupProviders } from './providers'
+import { forgetVisionModel } from './providers/vision/ollama'
 import { speak, stop as stopSpeaking } from './tts/speak'
 import { log } from './util/logger'
 
@@ -57,7 +58,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       previous.ocrProvider !== next.ocrProvider ||
       previous.visionProvider !== next.visionProvider ||
       previous.geoProvider !== next.geoProvider ||
-      previous.ollamaModel !== next.ollamaModel
+      previous.ollamaModel !== next.ollamaModel ||
+      previous.ollamaUrl !== next.ollamaUrl
+
+    // O modelo descoberto fica guardado para não custar uma ida à rede por
+    // análise; trocar o modelo ou o endereço é justamente quando ele deixa
+    // de valer.
+    if (previous.ollamaModel !== next.ollamaModel || previous.ollamaUrl !== next.ollamaUrl) {
+      forgetVisionModel()
+    }
 
     if (changed) {
       void warmupProviders().catch((error) => log.error('reaquecimento falhou', error))

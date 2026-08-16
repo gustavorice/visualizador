@@ -42,6 +42,31 @@ export const HARD_EVIDENCE: ReadonlySet<EvidenceKind> = new Set<EvidenceKind>([
   'phone'
 ])
 
+/**
+ * Esta pista é dura o bastante para FECHAR um veredito?
+ *
+ * O tipo quase basta, mas a origem decide um caso: uma cidade LIDA na tela é
+ * observação; a mesma cidade DEDUZIDA pelo modelo de visão é palpite.
+ *
+ * A diferença não é filosófica, é o que a geocodificação consegue conferir.
+ * Um monumento nomeado tem que sobreviver à busca: "Ponte Zhivopisny" resolve
+ * numa coordenada e um nome inventado morre ali, então o geocodificador de
+ * fato confirma alguma coisa. Um nome de cidade não passa por nenhuma prova —
+ * TODA cidade existente geocodifica, inclusive a errada. Deixar o palpite
+ * fechar veredito era o app afirmando "Atenas" com 70% de confiança porque o
+ * modelo achou a foto com cara de Grécia, e isso é exatamente o inventar
+ * lugar que o resto do desenho existe para impedir. Como pista ela continua
+ * valendo — vira consulta, desambigua rua homônima, sustenta o país —, só não
+ * assina sozinha a resposta.
+ */
+export function isHardEvidence(item: {
+  kind: EvidenceKind
+  source: 'ocr' | 'title' | 'vision' | 'search'
+}): boolean {
+  if (item.kind === 'locality' && item.source === 'vision') return false
+  return HARD_EVIDENCE.has(item.kind)
+}
+
 /** Pistas que restringem no máximo a nível de país. */
 export const COUNTRY_EVIDENCE: ReadonlySet<EvidenceKind> = new Set<EvidenceKind>([
   'license_plate',

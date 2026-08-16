@@ -15,6 +15,7 @@ import {
   clamp01,
   confidenceLabel,
   decideVerdict,
+  isHardEvidence,
   noisyOr,
   uncertaintyKm
 } from '@shared/confidence'
@@ -124,7 +125,7 @@ export function fuse(input: FusionInput): FusionOutput {
    */
   const runnerUpHasHard = [...(runnerUp?.evidenceIds ?? [])].some((id) => {
     const item = byId.get(id)
-    return !!item && HARD_EVIDENCE.has(item.kind)
+    return !!item && isHardEvidence(item)
   })
 
   const conflicting =
@@ -148,7 +149,7 @@ export function fuse(input: FusionInput): FusionOutput {
     .map((id) => byId.get(id))
     .filter((item): item is Evidence => Boolean(item))
 
-  const hasHardEvidence = supporting.some((item) => HARD_EVIDENCE.has(item.kind))
+  const hasHardEvidence = supporting.some(isHardEvidence)
 
   /*
    * O título da janela diz o que a JANELA é, não o que a IMAGEM mostra.

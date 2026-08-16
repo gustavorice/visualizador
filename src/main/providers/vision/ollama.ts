@@ -67,7 +67,34 @@ interface OllamaTag {
 
 const VISION_NAME_HINTS = /vl|vision|llava|moondream|bakllava|minicpm-v|gemma3|pixtral/i
 
+/**
+ * Modelo já descoberto, guardado por preferência configurada.
+ *
+ * A lista de modelos instalados não muda entre duas análises, mas a consulta
+ * estava sendo refeita em toda uma delas — no caminho crítico, antes de a
+ * imagem sequer começar a ser processada. É pouco tempo cada vez, e é tempo
+ * gasto para reconfirmar uma resposta que já se tinha.
+ */
+const modelCache = new Map<string, string | null>()
+
+/** Esquecer o que foi descoberto — usado quando o usuário troca o modelo. */
+export function forgetVisionModel(): void {
+  modelCache.clear()
+}
+
 export async function findVisionModel(preferred: string): Promise<string | null> {
+  const cached = modelCache.get(preferred)
+  if (cached !== undefined) return cached
+
+  const found = await lookupVisionModel(preferred)
+  // Só o resultado POSITIVO é guardado: um `null` costuma significar "o
+  // Ollama ainda não subiu", e cravar isso deixaria o app dizendo "nenhum
+  // modelo instalado" para sempre, mesmo depois de o usuário abrir o Ollama.
+  if (found) modelCache.set(preferred, found)
+  return found
+}
+
+async function lookupVisionModel(preferred: string): Promise<string | null> {
   const { ollamaUrl } = getSettings()
   const response = await request(`${ollamaUrl}/api/tags`, { timeoutMs: 2000 })
   const body = (await response.json()) as { models?: OllamaTag[] }
@@ -133,8 +160,29 @@ export class OllamaVisionProvider implements VisionProvider {
         // Temperatura baixa: queremos transcrição fiel, não criatividade.
         temperature: 0.1,
         top_p: 0.9,
-        // Teto de tokens: a saída é uma lista curta, e cada token custa tempo.
-        num_predict: 500
+        /*
+         * Contexto explícito, e não é folga à toa.
+         *
+         * Várias versões do Ollama usam 2048 por padrão. A conta antiga
+         * encostava nisso: ~600 tokens de prompt de sistema, ~700 de imagem a
+         * 1024px, mais 500 de geração. Quando estoura, o Ollama descarta os
+         * tokens MAIS ANTIGOS — que são justamente as instruções. O modelo
+         * então responde sem saber o que foi pedido, e o resultado não parece
+         * um erro: parece o modelo sendo ruim. Fixar o valor tira essa
+         * variável do jogo, e 4096 sobra para a conta atual (~1100 + 280).
+         */
+        num_ctx: 4096,
+        /*
+         * Teto de tokens gerados — e é AQUI que o tempo vai.
+         *
+         * Num modelo local sem GPU a geração custa a maior parte dos segundos
+         * que o usuário passa esperando: cada token sai em dezenas de
+         * milissegundos, então 500 tokens são dezenas de segundos sozinhos.
+         * Com o esquema limitado a 6 pistas e os textos curtos, a resposta
+         * completa cabe folgada em 280 — o resto do orçamento antigo era
+         * gasto em prosa que o app descartava.
+         */
+        num_predict: 280
       },
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },

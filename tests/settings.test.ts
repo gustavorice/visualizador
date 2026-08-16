@@ -59,6 +59,12 @@ describe('padrões de fábrica', () => {
     // Medido: abaixo de ~1600px o Tesseract deixa de ler texto de interface.
     assert.ok(DEFAULT_SETTINGS.captureMaxWidth >= 1600)
   })
+
+  it('manda ao modelo de visão uma imagem bem menor que a do OCR', () => {
+    // As duas etapas querem coisas diferentes: o OCR precisa de resolução para
+    // ler letra miúda, o modelo de visão reconhece cena e paga pela ÁREA.
+    assert.ok(DEFAULT_SETTINGS.visionMaxWidth < DEFAULT_SETTINGS.captureMaxWidth / 2)
+  })
 })
 
 describe('migração de configurações salvas', () => {
@@ -87,6 +93,20 @@ describe('migração de configurações salvas', () => {
     const settings = getSettings()
     assert.equal(settings.visionTimeoutMs, DEFAULT_SETTINGS.visionTimeoutMs)
     assert.equal(settings.totalTimeoutMs, DEFAULT_SETTINGS.totalTimeoutMs)
+  })
+
+  it('reescreve na v3 a largura que fazia a visão demorar', () => {
+    given({ version: 3, visionMaxWidth: 1024 })
+    assert.equal(getSettings().visionMaxWidth, DEFAULT_SETTINGS.visionMaxWidth)
+    assert.ok(DEFAULT_SETTINGS.visionMaxWidth < 1024)
+  })
+
+  it('aplica as duas migrações quando o arquivo é bem antigo', () => {
+    given({ version: 1, ocrProvider: 'mock', visionTimeoutMs: 6000, visionMaxWidth: 1024 })
+    const settings = getSettings()
+    assert.equal(settings.ocrProvider, 'tesseract')
+    assert.equal(settings.visionTimeoutMs, DEFAULT_SETTINGS.visionTimeoutMs)
+    assert.equal(settings.visionMaxWidth, DEFAULT_SETTINGS.visionMaxWidth)
   })
 
   it('não mexe em quem já está na versão corrente', () => {

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      CSP restritiva. img-src precisa liberar o servidor de tiles do OSM;
+      connect-src fica no 'self' porque toda chamada de rede (Ollama,
+      Nominatim, busca) acontece no processo principal, nunca aqui.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+        default-src 'self';
+        script-src 'self' 'unsafe-inline';
+        style-src 'self' 'unsafe-inline';
+        img-src 'self' data: blob: https://*.tile.openstreetmap.org https://tile.openstreetmap.org;
+        connect-src 'self' ws: http://localhost:* https://*.tile.openstreetmap.org;
+        worker-src 'self' blob:;
+        font-src 'self' data:;
+        media-src 'self' blob: data:;
+        object-src 'none';
+        base-uri 'self';
+      "
+    />
+    <title>Visualizador</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

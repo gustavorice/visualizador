@@ -1,0 +1,17 @@
+node_modules/
+out/
+dist/
+release/
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+.env
+.env.local
+.vite/
+tsconfig.tsbuildinfo
+*.tsbuildinfo
+
+# Capturas nunca devem ser versionadas. O app não as salva por padrão;
+# se você ativar `saveCaptures`, elas caem aqui.
+captures/

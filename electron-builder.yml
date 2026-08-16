@@ -1,0 +1,38 @@
+appId: com.visualizador.app
+productName: Visualizador
+copyright: Copyright © 2026
+
+directories:
+  output: release
+  buildResources: resources
+
+files:
+  - out/**/*
+  - package.json
+  - '!**/*.map'
+
+# O tesseract.js carrega WASM e o `traineddata` em tempo de execução; manter
+# o pacote desempacotado evita que ele tente ler de dentro do asar.
+asarUnpack:
+  - node_modules/tesseract.js/**
+  - node_modules/tesseract.js-core/**
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+    - target: portable
+      arch: [x64]
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Visualizador
+
+# Sem servidor de atualização configurado: o app não busca atualizações
+# sozinho, o que é coerente com a postura de privacidade do projeto.
+publish: null

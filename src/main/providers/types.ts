@@ -1,4 +1,4 @@
-import type { LocationCandidate, OcrResult, VisionResult } from '@shared/types'
+import type { EvidenceKind, LocationCandidate, OcrResult, VisionResult } from '@shared/types'
 
 export interface ProviderContext {
   signal: AbortSignal
@@ -38,6 +38,14 @@ export interface VisionProvider {
 export interface GeoQuery {
   /** Texto a consultar, ex.: "Museu de Arte de São Paulo". */
   text: string
+  /**
+   * Tipo da pista que originou a consulta.
+   *
+   * Decide QUAL resolvedor usar: nome de lugar famoso vai para a Wikidata,
+   * que é multilíngue; endereço vai para o Nominatim, que entende
+   * logradouro e número. São problemas diferentes com ferramentas diferentes.
+   */
+  kind?: EvidenceKind
   /** Código de país para enviesar a busca, quando houver pista. */
   countryHint?: string
   /** IDs das evidências que originaram esta consulta. */

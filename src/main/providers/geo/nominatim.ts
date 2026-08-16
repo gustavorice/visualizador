@@ -6,6 +6,7 @@ import { Lru } from '../../util/lru'
 import { log } from '../../util/logger'
 import { RateLimiter } from './ratelimit'
 import { verifyQueries } from './websearch'
+import { resolveLandmark } from './wikidata'
 import { normalize } from './gazetteer'
 
 /**
@@ -67,6 +68,25 @@ export class NominatimGeoProvider implements GeoProvider {
     const text = query.text.trim()
     if (!text) return []
 
+    /*
+     * Nome de lugar famoso é problema da Wikidata, não do Nominatim.
+     *
+     * O Nominatim casa com a etiqueta `name` do OSM, que está no idioma local:
+     * a ponte Zhivopisny só aparece como "Живописный мост". Um modelo que
+     * responde "Ponte Zhivopisny, Moscou" acerta o lugar e mesmo assim não
+     * geocodifica. A Wikidata é multilíngue e resolve; o Nominatim entra
+     * depois, só para traduzir a coordenada em país/estado/cidade.
+     */
+    if (query.kind === 'landmark') {
+      const landmark = await resolveLandmark(text, settings.contactEmail, context)
+      if (landmark) {
+        const place = await this.reverse(landmark.lat, landmark.lon, context)
+        return [{ ...landmark, ...place, supportedBy: query.evidenceIds, query: text }]
+      }
+      // Sem correspondência na Wikidata, ainda vale tentar o Nominatim: pode
+      // ser um lugar mapeado no OSM sob o nome que o modelo usou.
+    }
+
     const cacheKey = `${normalize(text)}|${query.countryHint ?? ''}`
     const cached = cache.get(cacheKey)
     if (cached) {
@@ -97,6 +117,48 @@ export class NominatimGeoProvider implements GeoProvider {
     const candidates = places.map((place) => toCandidate(place, query, this.name))
     cache.set(cacheKey, candidates)
     return candidates
+  }
+
+  /**
+   * Coordenada -> país / estado / cidade.
+   *
+   * A Wikidata dá o ponto, mas não os nomes administrativos na forma que o
+   * usuário quer ler. A reversa do Nominatim faz exatamente isso, e é o que
+   * transforma "Ponte Zhivopisny" em "Moscou, Rússia".
+   */
+  private async reverse(
+    lat: number,
+    lon: number,
+    context: ProviderContext
+  ): Promise<Partial<LocationCandidate>> {
+    const settings = getSettings()
+    const url = new URL('/reverse', settings.nominatimUrl)
+    url.searchParams.set('lat', String(lat))
+    url.searchParams.set('lon', String(lon))
+    url.searchParams.set('format', 'jsonv2')
+    url.searchParams.set('accept-language', 'pt-BR')
+    url.searchParams.set('zoom', '10')
+
+    try {
+      const place = await this.limiter.schedule(() =>
+        getJson<NominatimPlace>(url.toString(), {
+          timeoutMs: context.timeoutMs,
+          signal: context.signal,
+          headers: { 'user-agent': userAgent(), 'accept-language': 'pt-BR' }
+        })
+      )
+      const address = place.address ?? {}
+      return {
+        city: address.city ?? address.town ?? address.village ?? address.municipality,
+        region: address.state ?? address.region,
+        country: address.country,
+        countryCode: address.country_code?.toUpperCase()
+      }
+    } catch (error) {
+      // Sem os nomes o ponto ainda vale; o veredito só não chega a "cidade".
+      log.error('geocodificação reversa falhou', error)
+      return {}
+    }
   }
 
   async health(): Promise<{ ready: boolean; detail: string }> {

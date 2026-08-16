@@ -273,6 +273,7 @@ export function buildQueries(
     if (needsCity && cityContext) {
       push(queries, seen, {
         text: `${item.value}, ${cityContext}`,
+        kind: item.kind,
         countryHint,
         evidenceIds: [item.id],
         // A combinação endereço + cidade é a consulta mais precisa possível.
@@ -282,6 +283,7 @@ export function buildQueries(
 
     push(queries, seen, {
       text: item.value,
+      kind: item.kind,
       countryHint,
       evidenceIds: [item.id],
       priority: needsCity && cityContext ? item.weight * 0.7 : item.weight

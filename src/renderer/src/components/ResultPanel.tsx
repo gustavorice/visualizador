@@ -1,5 +1,5 @@
 import type { AnalysisResult } from '@shared/types'
-import { VERDICT_LABEL, confidenceColor, formatMs, formatPlace } from '../lib/format'
+import { VERDICT_LABEL, confidenceColor, formatMs } from '../lib/format'
 
 interface Props {
   result: AnalysisResult | null
@@ -32,8 +32,24 @@ export function ResultPanel({ result, running }: Props): React.JSX.Element {
               </span>
             </div>
 
+            {/* Só país, estado e cidade. O monumento serve para ACHAR o
+                lugar, não para ser a resposta — quem pergunta "onde é isto"
+                quer o lugar, não a descrição do que está na foto. */}
             {result.location ? (
-              <h2 className="place">{formatPlace(result.location)}</h2>
+              <dl className="place-fields">
+                <div>
+                  <dt>País</dt>
+                  <dd>{result.location.country ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt>Estado</dt>
+                  <dd>{result.location.region ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt>Cidade</dt>
+                  <dd>{result.location.city ?? '—'}</dd>
+                </div>
+              </dl>
             ) : (
               <h2 className="place-empty">Local não determinado</h2>
             )}
@@ -85,14 +101,6 @@ export function ResultPanel({ result, running }: Props): React.JSX.Element {
               </>
             )}
 
-            {result.vision?.sceneDescription && (
-              <>
-                <div className="section-title">Cena descrita</div>
-                <p className="muted" style={{ margin: 0 }}>
-                  {result.vision.sceneDescription}
-                </p>
-              </>
-            )}
           </>
         )}
       </div>

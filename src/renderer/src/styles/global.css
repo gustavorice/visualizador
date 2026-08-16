@@ -263,6 +263,40 @@ button:focus-visible {
   line-height: 1.3;
 }
 
+.place-fields {
+  margin: 0 0 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.place-fields > div {
+  display: grid;
+  grid-template-columns: 74px 1fr;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.place-fields > div:last-child {
+  border-bottom: none;
+}
+
+.place-fields dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+}
+
+.place-fields dd {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
 .place-empty {
   font-size: 17px;
   font-weight: 600;

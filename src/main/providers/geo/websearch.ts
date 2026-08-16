@@ -33,6 +33,19 @@ export async function verifyQueries(
     return queries
   }
 
+  // Um provedor escolhido sem a configuração que ele exige é o mesmo que
+  // nenhum provedor: seguir adiante só produziria uma falha por consulta,
+  // engolida pelo tratamento de erro, custando tempo e não entregando nada.
+  const missingConfig =
+    (settings.webSearchProvider === 'searxng' && !settings.webSearchUrl.trim()) ||
+    ((settings.webSearchProvider === 'brave' || settings.webSearchProvider === 'tavily') &&
+      !settings.webSearchApiKey.trim())
+
+  if (missingConfig) {
+    log.warn(`busca externa "${settings.webSearchProvider}" sem configuração; etapa ignorada`)
+    return queries
+  }
+
   // Todas as buscas em paralelo: são independentes e a etapa inteira tem
   // deadline próprio no orquestrador.
   const verified = await Promise.all(

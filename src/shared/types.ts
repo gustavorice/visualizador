@@ -202,6 +202,15 @@ export interface AnalysisResult {
   evidence: Evidence[]
   /** Consultas de geocodificação e seus resultados, para diagnóstico. */
   queries: QueryOutcome[]
+  /**
+   * Etapas que falharam, com o motivo.
+   *
+   * Uma etapa que falha degrada em silêncio por desenho — a análise continua
+   * com o que sobrou. Mas quando a etapa que falhou É o produto (a visão, num
+   * app que deve reconhecer o lugar pela foto), o silêncio esconde a única
+   * coisa que o usuário precisa saber.
+   */
+  warnings: string[]
   ocr?: OcrResult
   vision?: VisionResult
   sourceName: string
@@ -265,6 +274,15 @@ export interface Settings {
   webSearchProvider: 'none' | 'searxng' | 'brave' | 'tavily'
   webSearchUrl: string
   webSearchApiKey: string
+
+  /**
+   * Usar o nome da janela/tela como pista.
+   *
+   * Desligado por padrão: o título diz o que a JANELA é, não o que a IMAGEM
+   * mostra, e para "descobrir o lugar olhando a foto" ele é trapaça — além de
+   * poder estar simplesmente errado quando a janela navegou.
+   */
+  useWindowTitle: boolean
 
   /** Privacidade */
   saveCaptures: boolean

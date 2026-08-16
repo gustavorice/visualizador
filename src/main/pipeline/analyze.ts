@@ -31,6 +31,18 @@ export interface AnalyzeOptions {
   emit: (event: AnalysisEvent) => void
 }
 
+/** Nome legível de cada etapa, para as mensagens de aviso. */
+const STAGE_LABEL: Record<StageName, string> = {
+  capture: 'captura',
+  preview: 'prévia',
+  ocr: 'OCR',
+  vision: 'modelo de visão',
+  fuse: 'fusão',
+  geocode: 'geocodificação',
+  verify: 'validação',
+  compose: 'veredito'
+}
+
 const running = new Map<string, AbortController>()
 
 export function cancelAnalysis(id: string): void {
@@ -64,14 +76,24 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
   const startedAt = Date.now()
   const total = stopwatch()
   const timings: Partial<Record<StageName, number>> = {}
+  const warnings: string[] = []
 
   const controller = new AbortController()
   running.set(id, controller)
 
   const globalTimer = setTimeout(() => controller.abort(), settings.totalTimeoutMs)
 
-  const stage = (name: StageName, status: 'running' | 'done' | 'skipped' | 'error', ms?: number, message?: string) =>
+  const stage = (
+    name: StageName,
+    status: 'running' | 'done' | 'skipped' | 'error',
+    ms?: number,
+    message?: string
+  ): void => {
+    // Uma etapa que falha degrada em silêncio por desenho. Mas se a etapa que
+    // falhou é a que o usuário está contando, o silêncio esconde a resposta.
+    if (status === 'error' && message) warnings.push(`${STAGE_LABEL[name]}: ${message}`)
     emit({ type: 'stage', id, stage: name, status, ms, message })
+  }
 
   try {
     emit({ type: 'started', id, sourceName })
@@ -138,9 +160,12 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
     stage('fuse', 'running')
     const fuseTime = stopwatch()
     // O título da janela costuma trazer a resposta pronta e exata, então
-    // entra junto com as pistas lidas dos pixels.
+    // entra junto com as pistas lidas dos pixels. Usamos o nome LIDO NA
+    // CAPTURA, nunca o que o usuário escolheu antes: a janela pode ter
+    // navegado desde então, e um título velho é texto exato sobre a página
+    // errada.
     const textEvidence = [
-      ...extractTitleEvidence(sourceName),
+      ...(settings.useWindowTitle ? extractTitleEvidence(captured.sourceName) : []),
       ...(ocr ? extractOcrEvidence(ocr) : [])
     ]
     const evidence = mergeEvidence(textEvidence, vision?.evidence ?? [])
@@ -208,9 +233,10 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
       alternatives: fused.alternatives,
       evidence: fused.evidence,
       queries: outcomes,
+      warnings,
       ocr: ocr ?? undefined,
       vision: vision ?? undefined,
-      sourceName,
+      sourceName: captured.sourceName || sourceName,
       timings,
       totalMs: total(),
       startedAt,

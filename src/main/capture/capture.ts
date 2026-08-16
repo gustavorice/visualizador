@@ -17,6 +17,15 @@ import { log, stopwatch } from '../util/logger'
  */
 
 export interface CapturedImage {
+  /**
+   * Nome da fonte NO MOMENTO da captura.
+   *
+   * Precisa vir daqui, e não do que o usuário escolheu antes: o título de uma
+   * janela muda quando ela navega. Usar o nome guardado faz o app afirmar o
+   * endereço de uma página que não está mais na tela — texto exato, e exatamente
+   * errado.
+   */
+  sourceName: string
   /** PNG em tamanho de análise — entrada do OCR (bordas de texto nítidas). */
   ocrBuffer: Buffer
   /** JPEG reduzido — entrada do VLM (payload base64 menor = prefill menor). */
@@ -124,6 +133,7 @@ export async function captureSource(
   log.info('captura concluída', { ms: elapsed(), width: size.width, height: size.height })
 
   const captured: CapturedImage = {
+    sourceName: match.name,
     ocrBuffer,
     visionBase64,
     width: size.width,

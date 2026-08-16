@@ -167,6 +167,12 @@ export function SettingsPanel({ settings, onChange }: Props): React.JSX.Element 
             onChange={(allowNetwork) => onChange({ allowNetwork })}
           />
           <Check
+            label="Usar o nome da janela como pista"
+            hint="Desligado: o título diz o que a janela é, não o que a imagem mostra. Ligue só se quiser aceitar essa dica."
+            checked={settings.useWindowTitle}
+            onChange={(useWindowTitle) => onChange({ useWindowTitle })}
+          />
+          <Check
             label="Salvar capturas em disco"
             hint="Desligado por padrão. As imagens vivem apenas na memória durante a análise."
             checked={settings.saveCaptures}

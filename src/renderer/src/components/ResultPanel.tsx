@@ -40,6 +40,16 @@ export function ResultPanel({ result, running }: Props): React.JSX.Element {
 
             <p className="summary">{result.summary}</p>
 
+            {/* Uma etapa que falhou muda como ler o resultado — sobretudo a
+                visão, que num app de reconhecer lugar pela foto é o produto. */}
+            {result.warnings.length > 0 && (
+              <div className="error-banner" style={{ marginBottom: 14 }}>
+                {result.warnings.map((warning, index) => (
+                  <div key={index}>{warning}</div>
+                ))}
+              </div>
+            )}
+
             <ConfidenceMeter
               confidence={result.confidence}
               label={result.confidenceLabel}

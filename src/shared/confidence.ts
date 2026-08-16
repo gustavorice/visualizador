@@ -63,6 +63,20 @@ export const COUNTRY_EVIDENCE: ReadonlySet<EvidenceKind> = new Set<EvidenceKind>
  */
 export const MAX_CONFIDENCE = 0.95
 
+/**
+ * Confiabilidade da ORIGEM da pista.
+ *
+ * O título da janela é texto exato entregue pelo sistema operacional; o OCR é
+ * texto reconhecido de pixels e erra. Duas pistas com o mesmo peso não valem
+ * o mesmo quando uma delas pode simplesmente ter sido lida errado.
+ */
+export const SOURCE_TRUST: Record<'ocr' | 'title' | 'vision' | 'search', number> = {
+  title: 1, // texto exato do sistema, sem reconhecimento envolvido
+  search: 0.9, // confirmado por consulta externa
+  vision: 0.8, // interpretado por um modelo
+  ocr: 0.7 // reconhecido de pixels, sujeito a erro de leitura
+}
+
 export const THRESHOLDS = {
   /** Abaixo disso não afirmamos nada. */
   insufficient: 0.3,

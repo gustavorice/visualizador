@@ -103,19 +103,65 @@ interface OllamaChatResponse {
   message?: { content?: string }
 }
 
+/**
+ * Descobre qual modelo com visão está instalado.
+ *
+ * Exigir que o usuário digite o nome exato do modelo é uma armadilha: quem
+ * baixou `llama3.2-vision` e deixou o campo em `qwen2.5vl:3b` recebe um 404 e
+ * um lacônico "visão falhou". O Ollama sabe o que tem instalado, então o app
+ * pergunta.
+ *
+ * A capacidade de visão vem de `details.families` (`clip`/`mllama` são os
+ * projetores de imagem); o casamento por nome existe como reserva para
+ * versões do Ollama que não preenchem esse campo.
+ */
+interface OllamaTag {
+  name?: string
+  details?: { families?: string[] }
+}
+
+const VISION_NAME_HINTS = /vl|vision|llava|moondream|bakllava|minicpm-v|gemma3|pixtral/i
+
+export async function findVisionModel(preferred: string): Promise<string | null> {
+  const { ollamaUrl } = getSettings()
+  const response = await request(`${ollamaUrl}/api/tags`, { timeoutMs: 2000 })
+  const body = (await response.json()) as { models?: OllamaTag[] }
+  const models = body.models ?? []
+
+  const names = models.map((model) => model.name ?? '').filter(Boolean)
+  // O modelo escolhido pelo usuário sempre ganha, se estiver instalado.
+  const exact = names.find((name) => name === preferred || name.startsWith(`${preferred}:`))
+  if (exact) return exact
+
+  const capable = models.find((model) => {
+    const families = model.details?.families ?? []
+    return (
+      families.some((family) => /clip|mllama|vision/i.test(family)) ||
+      VISION_NAME_HINTS.test(model.name ?? '')
+    )
+  })
+
+  return capable?.name ?? null
+}
+
 export class OllamaVisionProvider implements VisionProvider {
   readonly name = 'ollama'
 
   async warmup(): Promise<void> {
     const { ollamaUrl, ollamaModel, ollamaKeepAlive } = getSettings()
     try {
+      const model = await findVisionModel(ollamaModel)
+      if (!model) {
+        log.warn('nenhum modelo com visão instalado no ollama')
+        return
+      }
       // Requisição vazia com keep_alive apenas carrega o modelo na memória.
       await postJson(
         `${ollamaUrl}/api/generate`,
-        { model: ollamaModel, prompt: '', stream: false, keep_alive: ollamaKeepAlive },
+        { model, prompt: '', stream: false, keep_alive: ollamaKeepAlive },
         { timeoutMs: 120_000 }
       )
-      log.info('modelo do ollama carregado', { model: ollamaModel })
+      log.info('modelo do ollama carregado', { model })
     } catch (error) {
       log.warn('não foi possível aquecer o ollama; a primeira análise será mais lenta')
       log.error('detalhe do aquecimento', error)
@@ -126,8 +172,15 @@ export class OllamaVisionProvider implements VisionProvider {
     const started = performance.now()
     const { ollamaUrl, ollamaModel, ollamaKeepAlive } = getSettings()
 
+    const model = await findVisionModel(ollamaModel)
+    if (!model) {
+      throw new Error(
+        'Nenhum modelo com visão instalado no Ollama. Rode: ollama pull qwen2.5vl:3b'
+      )
+    }
+
     const payload = {
-      model: ollamaModel,
+      model,
       stream: false,
       format: RESPONSE_FORMAT,
       keep_alive: ollamaKeepAlive,
@@ -168,7 +221,7 @@ export class OllamaVisionProvider implements VisionProvider {
 
     return {
       engine: this.name,
-      model: ollamaModel,
+      model,
       evidence,
       hint: {
         country: parsed.country_guess || undefined,
@@ -183,17 +236,17 @@ export class OllamaVisionProvider implements VisionProvider {
   async health(): Promise<{ ready: boolean; detail: string }> {
     const { ollamaUrl, ollamaModel } = getSettings()
     try {
-      const response = await request(`${ollamaUrl}/api/tags`, { timeoutMs: 1500 })
-      const body = (await response.json()) as { models?: Array<{ name?: string }> }
-      const names = (body.models ?? []).map((model) => model.name ?? '')
-      const installed = names.some((name) => name === ollamaModel || name.startsWith(`${ollamaModel}:`))
-      if (!installed) {
+      const model = await findVisionModel(ollamaModel)
+      if (!model) {
         return {
           ready: false,
-          detail: `Ollama respondeu, mas o modelo "${ollamaModel}" não está instalado. Rode: ollama pull ${ollamaModel}`
+          detail:
+            'Ollama respondeu, mas nenhum modelo instalado tem visão. ' +
+            'Rode: ollama pull qwen2.5vl:3b'
         }
       }
-      return { ready: true, detail: `Ollama ativo com ${ollamaModel}.` }
+      const chosen = model === ollamaModel ? model : `${model} (escolhido automaticamente)`
+      return { ready: true, detail: `Ollama ativo com ${chosen}.` }
     } catch {
       return { ready: false, detail: `Ollama não respondeu em ${ollamaUrl}.` }
     }

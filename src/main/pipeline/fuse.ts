@@ -10,6 +10,8 @@ import {
   COUNTRY_EVIDENCE,
   HARD_EVIDENCE,
   MAX_CONFIDENCE,
+  SOURCE_TRUST,
+  THRESHOLDS,
   clamp01,
   confidenceLabel,
   decideVerdict,
@@ -64,6 +66,8 @@ interface Cluster {
   evidenceIds: Set<string>
   queries: Set<string>
   score: number
+  /** Confiabilidade da melhor origem que sustenta este grupo. */
+  trust: number
 }
 
 /**
@@ -88,20 +92,31 @@ export function fuse(input: FusionInput): FusionOutput {
 
   for (const cluster of clusters) {
     cluster.score = scoreCluster(cluster, byId)
+    cluster.trust = trustOf(cluster, byId)
   }
   clusters.sort((a, b) => b.score - a.score)
 
   const winner = clusters[0]!
   const runnerUp = clusters[1]
 
-  // Conflito real: o segundo colocado aponta para OUTRO país com força
-  // comparável. Nesse caso não dá para afirmar nada em nível de cidade.
+  /*
+   * Conflito real: o segundo colocado aponta para OUTRO país com força
+   * comparável E com pistas de confiabilidade comparável.
+   *
+   * A segunda condição importa. Um endereço lido do título da janela é texto
+   * exato; um endereço quase idêntico lido pelo OCR pode ser o MESMO endereço
+   * com um caractere perdido — foi o que aconteceu com "Av. M 17" virando
+   * "Av. 17", que existe na Argentina. Sem comparar a confiabilidade das
+   * origens, um erro de leitura empata com o dado exato e derruba um acerto
+   * para "ambíguo".
+   */
   const conflicting =
     !!runnerUp &&
     !!runnerUp.countryCode &&
     !!winner.countryCode &&
     runnerUp.countryCode !== winner.countryCode &&
-    runnerUp.score >= winner.score * 0.8
+    runnerUp.score >= winner.score * 0.8 &&
+    runnerUp.trust >= winner.trust - 0.15
 
   const granularity: Granularity = winner.city
     ? 'city'
@@ -116,7 +131,22 @@ export function fuse(input: FusionInput): FusionOutput {
     .filter((item): item is Evidence => Boolean(item))
 
   const hasHardEvidence = supporting.some((item) => HARD_EVIDENCE.has(item.kind))
-  const confidence = clamp01(winner.score)
+
+  /*
+   * O título da janela diz o que a JANELA é, não o que a IMAGEM mostra.
+   *
+   * Um navegador aberto em "985 Av. M 17 - Google Maps" pode estar exibindo
+   * uma foto qualquer, e aí o título é texto exato sobre a página errada.
+   * Quando nada lido dos pixels corrobora o título, o resultado não pode subir
+   * a "localizado" — no máximo fica em "ambíguo", dizendo de onde veio a pista
+   * para o usuário julgar.
+   */
+  const titleOnly =
+    supporting.length > 0 && supporting.every((item) => item.source === 'title')
+
+  const confidence = titleOnly
+    ? Math.min(clamp01(winner.score), THRESHOLDS.located - 0.05)
+    : clamp01(winner.score)
 
   const verdict = decideVerdict({
     confidence,
@@ -165,6 +195,7 @@ export function fuse(input: FusionInput): FusionOutput {
     confidence,
     location,
     conflicting,
+    titleOnly,
     supportingCount: supporting.length
   })
 
@@ -205,7 +236,8 @@ function buildClusters(candidates: LocationCandidate[]): Cluster[] {
         precision: candidate.precision ?? 0.5,
         evidenceIds: new Set(candidate.supportedBy ?? []),
         queries: new Set(candidate.query ? [candidate.query] : []),
-        score: 0
+        score: 0,
+        trust: 0
       })
       continue
     }
@@ -276,6 +308,15 @@ function applyCountryLevelEvidence(
   }
 }
 
+/** Confiabilidade do grupo: a melhor origem entre as pistas que o sustentam. */
+function trustOf(cluster: Cluster, byId: Map<string, Evidence>): number {
+  const values = [...cluster.evidenceIds]
+    .map((id) => byId.get(id))
+    .filter((item): item is Evidence => Boolean(item))
+    .map((item) => SOURCE_TRUST[item.source] ?? 0.7)
+  return values.length > 0 ? Math.max(...values) : 0.7
+}
+
 function scoreCluster(cluster: Cluster, byId: Map<string, Evidence>): number {
   const weights = [...cluster.evidenceIds]
     .map((id) => byId.get(id)?.weight ?? 0)
@@ -284,9 +325,18 @@ function scoreCluster(cluster: Cluster, byId: Map<string, Evidence>): number {
   const evidenceStrength = noisyOr(weights)
   if (evidenceStrength === 0) return 0
 
-  // A qualidade do geocódigo modula, mas não zera: um lugar pouco "importante"
-  // no OSM ainda é um lugar real.
-  const geoFactor = 0.55 + 0.45 * clamp01(cluster.geoQuality)
+  /*
+   * A qualidade do geocódigo modula, mas não zera.
+   *
+   * `importance` do OSM mede FAMA, não qualidade da correspondência — uma rua
+   * residencial correta pontua 0,05 e um endereço errado numa cidadezinha
+   * pontua 0,00. Usar isso como fator de confiança punia exatamente os acertos
+   * mais precisos. A precisão do resultado (rua, endereço) é o sinal certo:
+   * ela diz o quão específico foi o casamento. A importância entra só como
+   * bônus, para não perder o caso do monumento famoso.
+   */
+  const resolution = Math.max(clamp01(cluster.precision), clamp01(cluster.geoQuality))
+  const geoFactor = 0.55 + 0.45 * resolution
   let score = evidenceStrength * geoFactor
 
   // Corroboração: consultas independentes que caem no mesmo lugar.
@@ -359,9 +409,11 @@ function compose(input: {
   confidence: number
   location?: ResolvedLocation
   conflicting: boolean
+  titleOnly: boolean
   supportingCount: number
 }): { summary: string; spoken: string } {
-  const { verdict, granularity, confidence, location, conflicting, supportingCount } = input
+  const { verdict, granularity, confidence, location, conflicting, titleOnly, supportingCount } =
+    input
   const label = confidenceLabel(confidence)
   const percent = Math.round(confidence * 100)
 
@@ -391,6 +443,16 @@ function compose(input: {
     return {
       summary: `Resultado ambíguo: as pistas apontam para mais de um país. O candidato mais forte é ${place}, com confiança ${label} (${percent}%), mas não é possível confirmar. ${evidenceNote}`,
       spoken: `As pistas apontam para mais de um país. O candidato mais provável é ${spokenPlace(location)}, mas não dá para confirmar.`
+    }
+  }
+
+  if (titleOnly) {
+    return {
+      summary:
+        `${place} — mas essa pista veio do NOME DA JANELA, não da imagem. ` +
+        'Nada no que foi capturado confirma o lugar, e o título pode descrever ' +
+        'outra página. Trate como indício fraco.',
+      spoken: `O nome da janela sugere ${spokenPlace(location)}, mas a imagem não confirma.`
     }
   }
 

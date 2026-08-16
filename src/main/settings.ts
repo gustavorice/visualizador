@@ -51,6 +51,8 @@ export const DEFAULT_SETTINGS: Settings = {
   webSearchUrl: '',
   webSearchApiKey: '',
 
+  useWindowTitle: false,
+
   saveCaptures: false,
   captureDir: '',
   allowNetwork: true,

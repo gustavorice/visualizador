@@ -14,7 +14,58 @@ editar `settings.json` em `%APPDATA%\Visualizador\settings.json`.
 
 ---
 
-## 1. Visão: simulado → Ollama
+## 0. Qual provedor de visão escolher
+
+| Provedor | Precisão | Latência | A imagem sai da máquina? | Custo |
+| --- | --- | --- | --- | --- |
+| **Simulado** | nenhuma — ignora a imagem | ~400ms | não | zero |
+| **Ollama** (`qwen2.5vl:3b`) | boa para texto, fraca para reconhecer lugares | 0,6–1,5s em GPU | **não** (roda em localhost) | zero |
+| **Claude** (`claude-opus-5`) | alta — reconhece monumentos, fachadas, estilo de sinalização | 1,5–4s | **sim** | por token |
+| **Desligado** | — | 0 | não | zero |
+
+A escolha real é entre **privacidade** e **conhecimento de mundo**. Um modelo
+local de 3B lê texto bem, mas não sabe que aquele vão vermelho suspenso é o
+MASP. Um modelo de fronteira sabe. Se o que você captura tem texto legível
+(mapas, sites, Street View), o OCR já resolve e o Ollama basta; se você
+analisa fotos sem texto, o Claude é a diferença entre "dados insuficientes" e
+uma resposta.
+
+> **Atalho que resolve muita coisa sem instalar nada:** ponha OCR em
+> `Tesseract`, Visão em `Desligado` e Geografia em `Nominatim`. Capturas de
+> tela quase sempre têm o endereço escrito em algum lugar — e o `Desligado`
+> existe justamente para o simulado não injetar pistas falsas nesse arranjo.
+
+## 1. Visão: simulado → Claude (nuvem)
+
+O caminho mais direto para precisão de modelo de fronteira.
+
+1. Gere uma chave em [console.anthropic.com](https://console.anthropic.com).
+2. Em **Configurações → Claude**, cole a chave. Ela fica apenas neste
+   computador, no `settings.json` do app.
+3. Em **Configurações → Provedores → Visão**, escolha `Claude (nuvem)`.
+
+O provedor está em
+[`src/main/providers/vision/claude.ts`](../src/main/providers/vision/claude.ts)
+e é deliberadamente parecido com o do Ollama:
+
+- **O mesmo prompt e o mesmo contrato.** O modelo lista pistas observáveis e
+  não decide o local. Trocar visão local por visão na nuvem melhora a
+  qualidade das pistas, não afrouxa as regras de veredito.
+- **Saída estruturada** por JSON Schema (`output_config.format`), o que
+  elimina parsing frágil e reduz tokens gerados.
+- **`effort: low`**, o principal controle de latência. A tarefa é de
+  percepção, não de raciocínio longo, então esforço baixo é suficiente e
+  bem mais rápido.
+- **Recusas são tratadas.** Uma recusa chega como HTTP 200 com conteúdo vazio;
+  ler o primeiro bloco sem checar `stop_reason` quebraria. O provedor também
+  ativa a reserva automática do servidor, que refaz o pedido em outro modelo
+  em vez de devolver a recusa.
+
+**O que muda em privacidade:** neste modo a **imagem** sai da sua máquina.
+Em todos os outros, só texto sai — e apenas com a rede liberada. Por isso o
+Claude não é padrão, e o rodapé do app mostra o provedor ativo o tempo todo.
+
+## 2. Visão: simulado → Ollama (local)
 
 ### Instalar
 
@@ -80,7 +131,7 @@ viram resposta sozinhos: sem uma pista dura que resolva, o veredito para em
 
 ---
 
-## 2. OCR: simulado → Tesseract
+## 3. OCR: simulado → Tesseract
 
 Em **Configurações → Provedores → OCR**, troque para `Tesseract (local)`.
 
@@ -105,7 +156,7 @@ Notas de desempenho, já implementadas:
 
 ---
 
-## 3. Geografia: simulado → Nominatim + pesquisa externa
+## 4. Geografia: simulado → Nominatim + pesquisa externa
 
 Em **Configurações → Provedores → Geografia**, troque para
 `Nominatim + busca`, e **ligue `Permitir acesso à rede`** — sem isso nenhuma
@@ -177,7 +228,7 @@ precisão, deixe em `Nenhum` — o pipeline funciona sem ela.
 
 ---
 
-## 4. Conferindo o resultado
+## 5. Conferindo o resultado
 
 Depois de trocar os provedores:
 

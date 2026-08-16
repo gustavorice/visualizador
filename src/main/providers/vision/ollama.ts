@@ -25,6 +25,7 @@ import { log } from '../../util/logger'
 
 const KNOWN_KINDS: EvidenceKind[] = [
   'landmark',
+  'locality',
   'street_sign',
   'business',
   'license_plate',

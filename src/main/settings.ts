@@ -22,6 +22,9 @@ export const DEFAULT_SETTINGS: Settings = {
   ollamaModel: 'qwen2.5vl:3b',
   ollamaKeepAlive: '30m',
 
+  claudeApiKey: '',
+  claudeModel: 'claude-opus-5',
+
   nominatimUrl: 'https://nominatim.openstreetmap.org',
   contactEmail: '',
 

@@ -19,6 +19,7 @@ export const STAGE_LABEL: Record<StageName, string> = {
 
 export const EVIDENCE_LABEL: Record<EvidenceKind, string> = {
   landmark: 'monumento',
+  locality: 'cidade/região',
   street_sign: 'placa/rua',
   business: 'estabelecimento',
   license_plate: 'placa veicular',

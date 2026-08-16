@@ -17,6 +17,7 @@
     "build:unpack": "npm run build && electron-builder --dir --config electron-builder.yml"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.117.1",
     "tesseract.js": "^7.0.0",
     "zod": "^4.4.3"
   },

@@ -52,6 +52,7 @@ export interface OcrResult {
  */
 export type EvidenceKind =
   | 'landmark' // monumento / ponto turístico reconhecível
+  | 'locality' // nome de cidade/região lido na tela ("Rio Claro, São Paulo")
   | 'street_sign' // placa de rua, número, CEP
   | 'business' // nome de estabelecimento
   | 'license_plate' // padrão de placa de veículo
@@ -199,19 +200,33 @@ export type AnalysisEvent =
 // Configuração
 // ---------------------------------------------------------------------------
 
-export type ProviderMode = 'mock' | 'real'
+/**
+ * Cada provedor tem o seu próprio conjunto de opções.
+ *
+ * 'off' existe para o caso prático de rodar só OCR + geocodificação: telas
+ * quase sempre contêm texto, e sem um modelo de visão configurado é melhor
+ * desligá-lo do que deixar o simulado injetar pistas falsas no resultado.
+ */
+export type OcrProviderId = 'mock' | 'tesseract' | 'off'
+export type VisionProviderId = 'mock' | 'ollama' | 'claude' | 'off'
+export type GeoProviderId = 'mock' | 'nominatim'
+export type AnyProviderId = OcrProviderId | VisionProviderId | GeoProviderId
 
 export interface Settings {
   /** 'mock' roda 100% offline e é o padrão do MVP. */
-  ocrProvider: ProviderMode
-  visionProvider: ProviderMode
-  geoProvider: ProviderMode
+  ocrProvider: OcrProviderId
+  visionProvider: VisionProviderId
+  geoProvider: GeoProviderId
 
   ocrLanguages: string
   ollamaUrl: string
   ollamaModel: string
   /** Mantém o modelo residente na VRAM entre análises — principal ganho de latência. */
   ollamaKeepAlive: string
+
+  /** Visão na nuvem (Claude). Troca privacidade por precisão de modelo de fronteira. */
+  claudeApiKey: string
+  claudeModel: string
 
   /** Geocodificação. Nominatim exige um User-Agent identificável. */
   nominatimUrl: string
@@ -249,9 +264,11 @@ export interface Settings {
 
 export interface ProviderHealth {
   name: string
-  mode: ProviderMode
+  mode: AnyProviderId
   ready: boolean
   detail: string
+  /** true quando o provedor é simulado — a interface avisa em destaque. */
+  simulated: boolean
 }
 
 export interface HealthReport {

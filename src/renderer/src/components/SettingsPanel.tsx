@@ -1,4 +1,4 @@
-import type { ProviderMode, Settings } from '@shared/types'
+import type { Settings } from '@shared/types'
 
 interface Props {
   settings: Settings
@@ -22,24 +22,68 @@ export function SettingsPanel({ settings, onChange }: Props): React.JSX.Element 
       <div className="panel-body">
         <div className="section-title">Provedores</div>
         <div className="settings-grid">
-          <ProviderSelect
-            label="OCR"
-            value={settings.ocrProvider}
-            realLabel="Tesseract (local)"
-            onChange={(ocrProvider) => onChange({ ocrProvider })}
-          />
-          <ProviderSelect
+          <Field label="OCR" hint="Lê o texto da tela. É o que resolve capturas de mapas e sites.">
+            <select
+              value={settings.ocrProvider}
+              onChange={(event) =>
+                onChange({ ocrProvider: event.target.value as Settings['ocrProvider'] })
+              }
+            >
+              <option value="mock">Simulado (ignora a imagem)</option>
+              <option value="tesseract">Tesseract (local)</option>
+              <option value="off">Desligado</option>
+            </select>
+          </Field>
+
+          <Field
             label="Visão"
-            value={settings.visionProvider}
-            realLabel="Ollama (local)"
-            onChange={(visionProvider) => onChange({ visionProvider })}
-          />
-          <ProviderSelect
-            label="Geografia"
-            value={settings.geoProvider}
-            realLabel="Nominatim + busca"
-            onChange={(geoProvider) => onChange({ geoProvider })}
-          />
+            hint="Reconhece monumentos, fachadas e paisagem. O Claude é muito mais preciso; em troca, a imagem sai da máquina."
+          >
+            <select
+              value={settings.visionProvider}
+              onChange={(event) =>
+                onChange({ visionProvider: event.target.value as Settings['visionProvider'] })
+              }
+            >
+              <option value="mock">Simulado (ignora a imagem)</option>
+              <option value="ollama">Ollama (local)</option>
+              <option value="claude">Claude (nuvem, mais preciso)</option>
+              <option value="off">Desligado</option>
+            </select>
+          </Field>
+
+          <Field label="Geografia" hint="Transforma as pistas em coordenadas. Sem isto nada é localizado.">
+            <select
+              value={settings.geoProvider}
+              onChange={(event) =>
+                onChange({ geoProvider: event.target.value as Settings['geoProvider'] })
+              }
+            >
+              <option value="mock">Simulado (gazetteer local)</option>
+              <option value="nominatim">Nominatim + busca</option>
+            </select>
+          </Field>
+        </div>
+
+        <div className="section-title">Claude (visão na nuvem)</div>
+        <div className="settings-grid">
+          <Field
+            label="Chave de API"
+            hint="Obtida em console.anthropic.com. Fica só neste computador, no arquivo de configurações."
+          >
+            <input
+              type="password"
+              value={settings.claudeApiKey}
+              placeholder="sk-ant-..."
+              onChange={(event) => onChange({ claudeApiKey: event.target.value })}
+            />
+          </Field>
+          <Field label="Modelo" hint="claude-opus-5 é o mais capaz para reconhecer lugares.">
+            <input
+              value={settings.claudeModel}
+              onChange={(event) => onChange({ claudeModel: event.target.value })}
+            />
+          </Field>
         </div>
 
         <div className="section-title">Ollama</div>
@@ -185,27 +229,6 @@ export function SettingsPanel({ settings, onChange }: Props): React.JSX.Element 
         </div>
       </div>
     </section>
-  )
-}
-
-function ProviderSelect({
-  label,
-  value,
-  realLabel,
-  onChange
-}: {
-  label: string
-  value: ProviderMode
-  realLabel: string
-  onChange: (value: ProviderMode) => void
-}): React.JSX.Element {
-  return (
-    <Field label={label}>
-      <select value={value} onChange={(event) => onChange(event.target.value as ProviderMode)}>
-        <option value="mock">Simulado</option>
-        <option value="real">{realLabel}</option>
-      </select>
-    </Field>
   )
 }
 

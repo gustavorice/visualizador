@@ -6,18 +6,95 @@ import { normalize } from '../providers/geo/gazetteer'
 import { countryCodeFor, countryCodeForLanguage } from '../providers/geo/countries'
 
 /**
- * Extrai pistas do texto do OCR usando apenas padrões de alta precisão.
+ * Extração de pistas do texto do OCR.
  *
- * A divisão de trabalho é proposital: regex cuida do que é formalmente
- * reconhecível (domínio, telefone, CEP, logradouro), e o modelo de visão cuida
- * do que exige interpretação (nome de estabelecimento, monumento). Tentar
- * adivinhar "isto parece o nome de uma loja" com regex só produz ruído, e
- * ruído aqui vira alfinete errado no mapa.
+ * A extração é feita LINHA A LINHA, não sobre o texto inteiro: endereços,
+ * localidades e telefones vivem dentro de uma linha, e casar padrões através
+ * de quebras de linha só produz combinações que não existem na tela.
+ *
+ * A divisão de trabalho com o modelo de visão é proposital: aqui ficam os
+ * padrões formalmente reconhecíveis (logradouro, localidade, domínio,
+ * telefone, CEP); nomes de estabelecimento e monumentos exigem interpretação
+ * e ficam com a visão. Tentar adivinhar "isto parece o nome de uma loja" com
+ * regex só produz ruído, e ruído aqui vira alfinete errado no mapa.
  */
-const PATTERNS: Array<{ kind: Evidence['kind']; regex: RegExp; detail: string }> = [
+
+/** Prefixos de logradouro, em capitalização normal e em caixa alta. */
+const STREET_PREFIXES = [
+  'Rua',
+  'R.',
+  'Avenida',
+  'Av.',
+  'Av',
+  'Alameda',
+  'Al.',
+  'Praça',
+  'Praca',
+  'Travessa',
+  'Rodovia',
+  'Estrada',
+  'Largo',
+  'Calle',
+  'Carrer',
+  'Plaza',
+  'Rue',
+  'Strasse',
+  'Straße'
+  // 'Street', 'Road' e 'Avenue' NÃO entram: em inglês o tipo da via vem
+  // depois do nome ("Main Street"), não antes. Como prefixos, eles só
+  // produziriam falsos positivos — "Street View" viraria um endereço.
+  // Endereços em inglês são cobertos pela linha de localidade.
+]
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/**
+ * Alternância com a forma original E a versão em caixa alta.
+ *
+ * Não usamos a flag `i` de propósito: ela tornaria o NOME do logradouro
+ * insensível a maiúsculas também, e aí "via de acesso" ou "rua estreita" no
+ * meio de uma frase virariam endereços.
+ */
+const PREFIX_ALT = STREET_PREFIXES.flatMap((prefix) => [
+  escapeRegex(prefix),
+  escapeRegex(prefix.toUpperCase())
+]).join('|')
+
+/**
+ * Nome do logradouro. O primeiro token aceita UMA letra ou dígito — sem isso,
+ * "Av. M 17" e "Rua 5" não casariam, e nomes assim são a norma em cidades
+ * planejadas brasileiras.
+ */
+const STREET_NAME = `[A-ZÀ-Þ0-9][\\wÀ-ÿ'.-]*(?:\\s+[A-ZÀ-Þa-zà-ÿ0-9][\\wÀ-ÿ'.-]*){0,3}`
+
+const STREET_RE = new RegExp(`\\b(?:${PREFIX_ALT})\\s+${STREET_NAME}`, 'g')
+
+/**
+ * Número predial antes do logradouro: "1387 Av. M 17".
+ *
+ * Ancorado no FIM do trecho anterior ao logradouro, porque é isso que
+ * caracteriza um número predial: ele encosta no nome da via.
+ */
+const NUMBER_BEFORE_RE = /(?:^|\s)(\d{1,6})\s*$/
+/** Número predial depois do logradouro: "Rua 5, 240". */
+const NUMBER_AFTER_RE = /[,\s]+(\d{1,6})\s*$/
+
+/**
+ * "Cidade, Região" numa linha própria — o formato que mapas, cabeçalhos de
+ * site e painéis de endereço usam. Exige as duas partes começando por
+ * maiúscula e ancoragem na linha inteira, o que descarta a maior parte do
+ * texto de interface.
+ */
+const LOCALITY_RE =
+  /^([A-ZÀ-Þ][\wÀ-ÿ']{2,}(?:\s+(?:de|da|do|dos|das)?\s*[A-ZÀ-Þ][\wÀ-ÿ']{2,}){0,3})\s*[,–-]\s*([A-ZÀ-Þ][\wÀ-ÿ']{1,}(?:\s+[A-ZÀ-Þa-zà-ÿ][\wÀ-ÿ']{1,}){0,3})$/
+
+const SIMPLE_PATTERNS: Array<{ kind: Evidence['kind']; regex: RegExp; detail: string }> = [
   {
     kind: 'domain',
-    regex: /\b[a-z0-9][a-z0-9-]{1,}\.(?:com\.br|org\.br|gov\.br|com\.pt|co\.uk|com\.au|co\.jp|com\.mx|com\.ar|pt|br|jp|fr|de|es|it|nl|se|no|pl|gr|kr|cn)\b/gi,
+    regex:
+      /\b[a-z0-9][a-z0-9-]{1,}\.(?:com\.br|org\.br|gov\.br|com\.pt|co\.uk|com\.au|co\.jp|com\.mx|com\.ar|pt|br|jp|fr|de|es|it|nl|se|no|pl|gr|kr|cn)\b/gi,
     detail: 'Domínio de internet com sufixo territorial.'
   },
   {
@@ -29,39 +106,60 @@ const PATTERNS: Array<{ kind: Evidence['kind']; regex: RegExp; detail: string }>
     kind: 'street_sign',
     regex: /\b\d{5}-\d{3}\b/g,
     detail: 'CEP brasileiro.'
-  },
-  {
-    kind: 'street_sign',
-    regex:
-      /\b(?:Rua|R\.|Avenida|Av\.|Alameda|Praça|Travessa|Rodovia|Estrada|Largo|Calle|Carrer|Plaza|Via|Viale|Rue|Straße|Strasse|Street|Road|Avenue)\s+[A-ZÀ-Þ][\wÀ-ÿ']{2,}(?:\s+[A-ZÀ-Þa-zà-ÿ][\wÀ-ÿ']{1,}){0,3}/g,
-    detail: 'Logradouro identificado no texto da tela.'
-  },
-  {
-    // Placas de rua reais costumam estar em caixa alta, e o OCR devolve
-    // exatamente isso. Sem esta variante, "AV. PAULISTA" passaria batido.
-    kind: 'street_sign',
-    regex:
-      /\b(?:RUA|AVENIDA|AV\.|ALAMEDA|PRAÇA|TRAVESSA|RODOVIA|ESTRADA|LARGO|CALLE|CARRER|PLAZA|RUE|STRASSE|STREET|ROAD|AVENUE)\s+[A-ZÀ-Þ0-9][A-ZÀ-Þ0-9'.-]*(?:\s+[A-ZÀ-Þ0-9][A-ZÀ-Þ0-9'.-]*){0,3}/g,
-    detail: 'Logradouro identificado no texto da tela.'
   }
 ]
 
 export function extractOcrEvidence(ocr: OcrResult): Evidence[] {
   const found = new Map<string, Evidence>()
 
-  for (const { kind, regex, detail } of PATTERNS) {
-    for (const match of ocr.text.matchAll(regex)) {
-      const value = match[0].trim().replace(/\s+/g, ' ')
-      const key = `${kind}:${normalize(value)}`
-      if (found.has(key)) continue
-      found.set(key, {
-        id: evidenceId('ocr'),
-        kind,
-        value,
-        detail,
-        weight: EVIDENCE_WEIGHT[kind],
-        source: 'ocr'
-      })
+  const add = (kind: Evidence['kind'], value: string, detail: string): void => {
+    const clean = value.trim().replace(/\s+/g, ' ')
+    if (!clean) return
+    const key = `${kind}:${normalize(clean)}`
+    if (found.has(key)) return
+    found.set(key, {
+      id: evidenceId('ocr'),
+      kind,
+      value: clean,
+      detail,
+      weight: EVIDENCE_WEIGHT[kind],
+      source: 'ocr'
+    })
+  }
+
+  const lines =
+    ocr.lines.length > 0 ? ocr.lines.map((line) => line.text) : ocr.text.split('\n')
+
+  for (const raw of lines) {
+    const line = raw.replace(/\s+/g, ' ').trim()
+    if (!line) continue
+
+    for (const { kind, regex, detail } of SIMPLE_PATTERNS) {
+      for (const match of line.matchAll(regex)) add(kind, match[0], detail)
+    }
+
+    for (const match of line.matchAll(STREET_RE)) {
+      const street = match[0]
+      const before = line.slice(0, match.index ?? 0)
+      const after = line.slice((match.index ?? 0) + street.length)
+
+      // O número predial transforma um logradouro numa coordenada exata,
+      // então vale procurá-lo dos dois lados do nome da via.
+      const number =
+        NUMBER_BEFORE_RE.exec(before)?.[1] ?? NUMBER_AFTER_RE.exec(after)?.[1] ?? null
+
+      add(
+        'street_sign',
+        number ? `${street}, ${number}` : street,
+        number
+          ? 'Endereço com número, lido na tela.'
+          : 'Logradouro identificado no texto da tela.'
+      )
+    }
+
+    const locality = LOCALITY_RE.exec(line)
+    if (locality) {
+      add('locality', line, 'Nome de cidade/região lido na tela.')
     }
   }
 
@@ -105,12 +203,15 @@ export function mergeEvidence(ocrEvidence: Evidence[], visionEvidence: Evidence[
 /**
  * Constrói as consultas de geocodificação, da mais promissora para a menos.
  *
- * Duas regras importam:
+ * Três regras importam:
  *  - só pistas DURAS viram consulta. Idioma, vegetação e arquitetura não são
- *    geocodificáveis; elas entram depois, na fusão, como reforço de país.
- *  - pistas ambíguas por natureza (rua, estabelecimento) ganham uma variante
- *    com a cidade sugerida, porque "Rua Augusta" sozinha existe em Lisboa e
- *    em São Paulo.
+ *    geocodificáveis; entram depois, na fusão, como reforço de país.
+ *  - uma localidade LIDA na tela vale mais como contexto que uma cidade
+ *    PALPITADA pelo modelo de visão, então ela tem prioridade para
+ *    desambiguar ruas e estabelecimentos.
+ *  - pistas ambíguas por natureza (rua, estabelecimento) ganham a variante
+ *    com cidade e a variante sem, porque "Rua Augusta" existe em Lisboa e em
+ *    São Paulo, mas o palpite de cidade também pode estar errado.
  */
 export function buildQueries(
   evidence: Evidence[],
@@ -122,7 +223,9 @@ export function buildQueries(
     countryCodeForLanguage(hint?.language) ??
     countryCodeFor(evidenceValueOfKind(evidence, 'flag'))
 
-  const cityHint = hint?.city?.trim()
+  // Localidade lida na tela ganha do palpite do modelo.
+  const readLocality = evidence.find((item) => item.kind === 'locality')?.value
+  const cityContext = readLocality ?? hint?.city?.trim()
 
   const queries: GeoQuery[] = []
   const seen = new Set<string>()
@@ -133,28 +236,27 @@ export function buildQueries(
 
   for (const item of hard) {
     const needsCity = item.kind === 'street_sign' || item.kind === 'business'
-    const text = needsCity && cityHint ? `${item.value}, ${cityHint}` : item.value
 
-    push(queries, seen, {
-      text,
-      countryHint,
-      evidenceIds: [item.id],
-      priority: item.weight
-    })
-
-    // Variante sem a cidade, caso o palpite de cidade esteja errado.
-    if (needsCity && cityHint) {
+    if (needsCity && cityContext) {
       push(queries, seen, {
-        text: item.value,
+        text: `${item.value}, ${cityContext}`,
         countryHint,
         evidenceIds: [item.id],
-        priority: item.weight * 0.7
+        // A combinação endereço + cidade é a consulta mais precisa possível.
+        priority: Math.min(1, item.weight + 0.2)
       })
     }
+
+    push(queries, seen, {
+      text: item.value,
+      countryHint,
+      evidenceIds: [item.id],
+      priority: needsCity && cityContext ? item.weight * 0.7 : item.weight
+    })
   }
 
-  // Rede de segurança: se nada duro apareceu mas há palpite de país, resolvemos
-  // ao menos o país. O veredito resultante será 'ambíguo', nunca 'localizado'.
+  // Rede de segurança: se nada duro apareceu mas há palpite de país,
+  // resolvemos ao menos o país. O veredito resultante será 'ambíguo'.
   if (queries.length === 0 && hint?.country) {
     const supporting = evidence
       .filter((item) => item.kind === 'language' || item.kind === 'flag' || item.kind === 'currency')

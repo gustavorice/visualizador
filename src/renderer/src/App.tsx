@@ -165,6 +165,29 @@ export function App(): React.JSX.Element {
 
       <div className="columns">
         <div className="column">
+          {/* Sem este aviso, um resultado simulado é indistinguível de um erro
+              de lógica: o app descreve uma cena que não tem nada a ver com a
+              tela capturada, porque os provedores simulados nunca olham para
+              a imagem. */}
+          {health && (health.ocr.simulated || health.vision.simulated || health.geo.simulated) && (
+            <div className="sim-banner">
+              <strong>Modo simulado ativo.</strong> Os provedores marcados abaixo não olham
+              para a sua imagem — eles devolvem um cenário de demonstração fixo, então o
+              resultado não tem relação com o que está na tela.
+              <div className="sim-banner-list">
+                {health.ocr.simulated && <span>OCR</span>}
+                {health.vision.simulated && <span>Visão</span>}
+                {health.geo.simulated && <span>Geografia</span>}
+              </div>
+              <button
+                onClick={() => setShowSettings(true)}
+                style={{ marginTop: 10 }}
+              >
+                Configurar provedores reais
+              </button>
+            </div>
+          )}
+
           <PreviewPane preview={state.preview} sourceName={source?.name ?? null} />
 
           {state.error && <div className="error-banner">{state.error}</div>}

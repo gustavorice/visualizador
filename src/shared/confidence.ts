@@ -7,6 +7,9 @@ import type { ConfidenceLabel, EvidenceKind, Granularity, Verdict } from './type
  */
 export const EVIDENCE_WEIGHT: Record<EvidenceKind, number> = {
   landmark: 0.9,
+  // Um nome de cidade lido na própria tela é a pista mais direta que existe:
+  // não precisa ser inferido, só confirmado pelo geocodificador.
+  locality: 0.72,
   street_sign: 0.62,
   license_plate: 0.6,
   business: 0.5,
@@ -31,6 +34,7 @@ export const EVIDENCE_WEIGHT: Record<EvidenceKind, number> = {
  */
 export const HARD_EVIDENCE: ReadonlySet<EvidenceKind> = new Set<EvidenceKind>([
   'landmark',
+  'locality',
   'street_sign',
   'business',
   'transit',

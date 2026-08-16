@@ -101,6 +101,64 @@ async function runScenario(key: string): Promise<{
   }
 }
 
+/**
+ * Extração de endereço a partir de texto real de tela.
+ *
+ * O caso é uma captura do Street View: o endereço e a cidade estão escritos
+ * na própria interface, então um OCR real resolve isso sem depender de
+ * nenhum modelo de visão. Estes casos existem porque a versão anterior do
+ * extrator perdia os dois — nomes curtos de logradouro ("Av. M 17") e a
+ * linha "Cidade, Região" não casavam com nenhum padrão.
+ */
+const EXTRACTION_CASES: Array<{ nome: string; linhas: string[]; espera: string[] }> = [
+  {
+    nome: 'street-view-rio-claro',
+    linhas: [
+      '1387 Av. M 17',
+      'Rio Claro, State of São Paulo',
+      'Google Street View',
+      'Jun 2011  See more dates'
+    ],
+    espera: ['Av. M 17, 1387', 'Rio Claro, State of São Paulo']
+  },
+  {
+    nome: 'placa-caixa-alta',
+    linhas: ['AV. PAULISTA', 'MASP', '(11) 3251-4000', 'www.masp.org.br'],
+    espera: ['AV. PAULISTA', '(11) 3251-4000', 'masp.org.br']
+  },
+  {
+    nome: 'rua-numerada',
+    linhas: ['Rua 5, 240', 'Goiânia - Goiás'],
+    espera: ['Rua 5, 240', 'Goiânia - Goiás']
+  }
+]
+
+function checkExtraction(): number {
+  let failures = 0
+  console.log('\n--- extração de endereço a partir do OCR ---')
+
+  for (const caso of EXTRACTION_CASES) {
+    const evidence = extractOcrEvidence({
+      engine: 'teste',
+      text: caso.linhas.join('\n'),
+      lines: caso.linhas.map((text) => ({ text, confidence: 0.95 })),
+      durationMs: 0
+    })
+
+    const values = evidence.map((item) => item.value)
+    const missing = caso.espera.filter((expected) => !values.includes(expected))
+    const status = missing.length === 0 ? 'OK  ' : 'FALHA'
+
+    console.log(`${status} ${caso.nome.padEnd(24)} ${JSON.stringify(values)}`)
+    for (const item of missing) {
+      console.log(`      -> não extraiu: ${item}`)
+      failures += 1
+    }
+  }
+
+  return failures
+}
+
 async function main(): Promise<void> {
   let failures = 0
 
@@ -138,6 +196,8 @@ async function main(): Promise<void> {
       failures += 1
     }
   }
+
+  failures += checkExtraction()
 
   console.log(failures === 0 ? '\nTodos os cenários passaram.' : `\n${failures} verificação(ões) falharam.`)
   process.exit(failures === 0 ? 0 : 1)

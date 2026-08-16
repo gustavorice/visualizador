@@ -26,9 +26,28 @@ npm run build:win  # gera instalador NSIS e versão portátil para Windows
 
 O MVP já vem **funcional e offline**: os três provedores (OCR, visão e
 geografia) começam em modo **simulado**, então dá para clicar em "Analisar
-tela" e ver o fluxo inteiro sem instalar nada além das dependências npm. Para
-trocar pelo Ollama e pela pesquisa externa, veja
-[`docs/OLLAMA-E-PESQUISA.md`](docs/OLLAMA-E-PESQUISA.md).
+tela" e ver o fluxo inteiro sem instalar nada além das dependências npm.
+
+> ⚠️ **O modo simulado ignora a sua imagem.** Ele devolve um cenário de
+> demonstração fixo, escolhido pelo hash do quadro — o resultado não tem
+> relação com o que está na tela. O app avisa isso em destaque enquanto
+> qualquer provedor simulado estiver ativo. Para respostas de verdade, troque
+> os provedores conforme
+> [`docs/OLLAMA-E-PESQUISA.md`](docs/OLLAMA-E-PESQUISA.md).
+
+**Qual provedor de visão usar:**
+
+| Provedor | Precisão | A imagem sai da máquina? |
+| --- | --- | --- |
+| Simulado | nenhuma — ignora a imagem | não |
+| Ollama (local) | boa para texto, fraca para reconhecer lugares | não |
+| **Claude (nuvem)** | alta — reconhece monumentos, fachadas, sinalização | **sim** |
+| Desligado | — | não |
+
+Se o que você captura tem texto legível (mapas, sites, Street View), **OCR +
+geocodificação já resolvem sozinhos** — ponha a visão em `Desligado`. Para
+fotos sem texto, o Claude é a diferença entre "dados insuficientes" e uma
+resposta.
 
 ## A regra que impede o app de inventar lugares
 
@@ -155,7 +174,8 @@ scripts/smoke.ts         verificação do núcleo sem Electron
 | UI | React 19 + TypeScript | — |
 | Mapa | MapLibre GL 6 + OSM | sem chave de API, sem rastreamento |
 | OCR | Tesseract.js 7 | roda local, worker reaproveitado entre análises |
-| Visão | Ollama (`qwen2.5vl:3b`) | modelo local, saída estruturada por JSON Schema |
+| Visão (local) | Ollama (`qwen2.5vl:3b`) | roda na máquina, saída estruturada por JSON Schema |
+| Visão (nuvem) | Claude (`claude-opus-5`) | conhecimento de mundo que um modelo de 3B não tem |
 | Geo | Nominatim (OSM) | gratuito; pode ser auto-hospedado para ganhar velocidade |
 | Voz | Web Speech API + SAPI | vozes do sistema, sem rede |
 | Empacotamento | electron-builder | NSIS + portátil |

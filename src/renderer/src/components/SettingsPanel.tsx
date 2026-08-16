@@ -212,7 +212,20 @@ export function SettingsPanel({ settings, onChange }: Props): React.JSX.Element 
               onChange={(event) => onChange({ visionMaxWidth: Number(event.target.value) })}
             />
           </Field>
-          <Field label="Prazo por etapa (ms)">
+          <Field
+            label="Prazo do modelo de visão (ms)"
+            hint="Um modelo local leva de 15s a alguns minutos, sobretudo na primeira análise."
+          >
+            <input
+              type="number"
+              min={5000}
+              max={600_000}
+              step={5000}
+              value={settings.visionTimeoutMs}
+              onChange={(event) => onChange({ visionTimeoutMs: Number(event.target.value) })}
+            />
+          </Field>
+          <Field label="Prazo por etapa (ms)" hint="Vale para OCR e geocodificação, não para a visão.">
             <input
               type="number"
               min={1000}

@@ -135,7 +135,9 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
 
     const visionTime = stopwatch()
     const visionPromise = getVisionProvider(settings)
-      .analyze(captured.visionBase64, context)
+      // Prazo próprio: o modelo de visão opera numa escala de tempo
+      // completamente diferente das demais etapas.
+      .analyze(captured.visionBase64, { ...context, timeoutMs: settings.visionTimeoutMs })
       .then((result) => {
         timings.vision = visionTime()
         stage('vision', 'done', timings.vision)

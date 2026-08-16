@@ -28,7 +28,7 @@ import { log } from './util/logger'
  * provedores simulados para sempre — mudar o padrão só alcançaria instalações
  * novas.
  */
-export const SETTINGS_VERSION = 2
+export const SETTINGS_VERSION = 3
 
 export const DEFAULT_SETTINGS: Settings = {
   version: SETTINGS_VERSION,
@@ -65,7 +65,10 @@ export const DEFAULT_SETTINGS: Settings = {
   visionMaxWidth: 1024,
   jpegQuality: 72,
   stageTimeoutMs: 6000,
-  totalTimeoutMs: 12000,
+  // Generoso de propósito: melhor esperar do que matar a única etapa capaz de
+  // reconhecer um lugar pela foto. O botão vira "Cancelar" durante a análise.
+  visionTimeoutMs: 180_000,
+  totalTimeoutMs: 240_000,
 
   speakResults: true,
   speechRate: 1,
@@ -97,15 +100,28 @@ function migrate(stored: Record<string, unknown>): Partial<Settings> {
 
   const next = { ...stored } as Record<string, unknown>
 
-  next.ocrProvider = stored.ocrProvider === 'real' ? 'tesseract' : 'tesseract'
-  next.visionProvider = stored.visionProvider === 'real' ? 'ollama' : 'off'
-  next.geoProvider = 'nominatim'
-  // Sem rede não há geocodificação, e sem geocodificação o app não responde
-  // nada. Só texto sai daqui — nunca a imagem.
-  next.allowNetwork = true
-  next.version = SETTINGS_VERSION
+  if (version < 2) {
+    // v1: cada provedor era só 'mock' ou 'real', e todos vinham em 'mock'. Um
+    // 'real' era escolha deliberada e é preservado; um 'mock' era só o padrão
+    // antigo e vira o provedor real correspondente.
+    next.ocrProvider = 'tesseract'
+    next.visionProvider = stored.visionProvider === 'real' ? 'ollama' : 'off'
+    next.geoProvider = 'nominatim'
+    // Sem rede não há geocodificação, e sem geocodificação o app não responde
+    // nada. Só texto sai daqui — nunca a imagem.
+    next.allowNetwork = true
+  }
 
-  log.info('configurações migradas para a versão ' + SETTINGS_VERSION)
+  if (version < 3) {
+    // v2: o prazo era único para todas as etapas, e 6s matava qualquer modelo
+    // de visão local antes de ele terminar. Quem já usou o app tem esses
+    // valores gravados, então precisam ser reescritos.
+    next.visionTimeoutMs = DEFAULT_SETTINGS.visionTimeoutMs
+    next.totalTimeoutMs = DEFAULT_SETTINGS.totalTimeoutMs
+  }
+
+  next.version = SETTINGS_VERSION
+  log.info(`configurações migradas da versão ${version} para a ${SETTINGS_VERSION}`)
   return next as Partial<Settings>
 }
 

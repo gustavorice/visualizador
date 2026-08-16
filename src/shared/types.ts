@@ -294,6 +294,16 @@ export interface Settings {
   visionMaxWidth: number
   jpegQuality: number
   stageTimeoutMs: number
+  /**
+   * Prazo só do modelo de visão.
+   *
+   * Separado do prazo geral porque as escalas não têm nada a ver: OCR e
+   * geocodificação respondem em milissegundos, enquanto um modelo de visão
+   * local pode levar de 15 segundos a alguns minutos — especialmente na
+   * primeira análise, quando ele ainda está subindo para a memória. Um prazo
+   * único obriga a escolher entre matar a visão ou deixar o resto pendurado.
+   */
+  visionTimeoutMs: number
   totalTimeoutMs: number
 
   /** Voz */

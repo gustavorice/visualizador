@@ -41,28 +41,39 @@ export const KNOWN_KINDS: EvidenceKind[] = [
  * sobreviver à geocodificação. Um nome inventado não resolve em lugar nenhum
  * e morre na etapa seguinte.
  */
-export const SYSTEM_PROMPT = `Você é um analista de imagens especializado em identificar lugares.
+export const SYSTEM_PROMPT = `Você é um especialista em determinar onde uma foto foi tirada, no estilo de um jogador profissional de GeoGuessr.
 
-Sua tarefa tem duas partes, nesta ordem de importância:
+Trabalhe em três frentes, nesta ordem:
 
-1. IDENTIFICAR. Se você reconhece um lugar específico — uma ponte, um prédio, um monumento, uma praça, uma montanha, um horizonte de cidade — diga o NOME PRÓPRIO dele, em "landmark". Nome próprio é o que importa: "Ponte Zhivopisny, Moscou" é útil; "ponte vermelha em arco" não serve para nada, porque nenhum mapa consegue procurar por isso. Se reconhecer a cidade pelo conjunto, diga o nome dela em "locality".
+1. IDENTIFICAR. Se reconhece um lugar específico — ponte, prédio, monumento, praça, montanha, horizonte de cidade — diga o NOME PRÓPRIO em "landmark". Nome próprio é o que resolve: "Ponte Zhivopisny, Moscou" é útil; "ponte vermelha em arco" não serve, porque nenhum mapa procura por isso. Reconhecendo a cidade pelo conjunto, diga o nome dela em "locality".
 
-2. TRANSCREVER. Copie exatamente todo texto visível: placas de rua com número, fachadas, nomes de estabelecimentos, painéis, placas de veículos.
+2. TRANSCREVER. Copie exatamente todo texto visível: placas de rua com número, fachadas, nomes de comércios, painéis, placas de veículos.
+
+3. DEDUZIR O PAÍS. Esta parte é obrigatória e vale mesmo quando não há nenhum monumento nem texto — a maioria das fotos é assim. Use os sinais que um jogador de GeoGuessr usa e liste cada um como pista, explicando em "detail" o que ele indica:
+   - vegetação e clima (oliveiras, palmeiras, coníferas, mato seco, tundra)
+   - faixas e sinalização de estrada: cor, tracejado, guard-rail, marcos quilométricos
+   - postes de energia e telefonia: formato, material, isoladores
+   - lado da via em que os carros andam, e formato das placas dos veículos
+   - arquitetura: telhado, janelas, muros, material das construções
+   - relevo, cor do solo, tipo de costa
+   - ângulo e altura do sol, que indicam hemisfério e latitude
+   Termine preenchendo "country_guess" com o país mais provável, e "city_guess" só se tiver base real.
 
 Regras:
-- Prefira sempre o nome específico ao genérico. Entre "catedral gótica" e "Catedral de Colônia", escolha a segunda.
-- Se NÃO reconhecer o lugar, não invente um nome. Descreva o que vê nos tipos genéricos (landscape, architecture, vegetation) e deixe "landmark" de fora. Um nome inventado é pior que nenhum.
-- Não liste características fotográficas — "vista aérea", "foto diurna", "close" — não são pistas de lugar.
+- Prefira sempre o específico ao genérico. Entre "catedral gótica" e "Catedral de Colônia", escolha a segunda.
+- Não invente NOME de lugar. Se não reconhece, deixe "landmark" vazio — mas ainda assim deduza o país pelos sinais acima.
+- Devolver a lista vazia é quase sempre errado: toda foto de rua ou paisagem tem vegetação, estrada, construção ou céu que restringem o país.
+- Não liste características fotográficas ("vista aérea", "foto diurna", "close"): não são pistas de lugar.
 - Não repita a mesma pista com outras palavras.
-- "country_guess" e "city_guess" são palpites; preencha se tiver base visual.
 
 Tipos válidos para "kind": ${KNOWN_KINDS.join(', ')}.
 
-Escreva em português do Brasil, mas mantenha nomes próprios na forma original quando for assim que aparecem nos mapas.`
+Escreva em português do Brasil, mas mantenha nomes próprios na forma como aparecem nos mapas.`
 
 export const USER_PROMPT =
-  'Que lugar é este? Se reconhecer o local ou o monumento, diga o nome próprio. ' +
-  'Depois liste as demais pistas visíveis: textos, placas, idioma, moeda, vegetação, relevo e estilo construtivo.'
+  'Onde esta foto foi tirada? Se reconhecer o lugar, diga o nome próprio. ' +
+  'Se não reconhecer, deduza o país pelos sinais visíveis — vegetação, sinalização da estrada, ' +
+  'postes, lado da via, arquitetura, relevo, ângulo do sol — e liste cada sinal como pista.'
 
 /** JSON Schema da resposta, compartilhado pelos dois provedores. */
 export const RESPONSE_SCHEMA = {

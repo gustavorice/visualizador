@@ -3,10 +3,14 @@ import type { EvidenceKind } from '@shared/types'
 /**
  * Cenários usados pelos provedores simulados.
  *
- * Existem quatro de propósito, cobrindo os três vereditos possíveis, para que
- * dê para exercitar o caminho honesto de falha ("não sei") sem precisar do
- * Ollama instalado. Os provedores simulados escolhem o cenário pelo hash da
- * imagem, então cada tela/janela cai consistentemente no mesmo caso.
+ * Cobrem os três vereditos possíveis e, principalmente, os dois caminhos por
+ * onde uma resposta pode chegar: pista dura que resolve em endereço, e
+ * dedução por sinais visuais quando não há texto nem monumento — o caso de
+ * uma foto de estrada, que é a maioria. Assim dá para exercitar o caminho
+ * honesto de falha ("não sei") sem precisar do Ollama instalado.
+ *
+ * Os provedores simulados escolhem o cenário pelo hash da imagem, então cada
+ * tela/janela cai consistentemente no mesmo caso.
  */
 
 export interface ScenarioClue {
@@ -122,6 +126,20 @@ export const SCENARIOS: Scenario[] = [
     sceneDescription:
       'Rua estreita com letreiros verticais luminosos, máquinas de venda automática junto ao meio-fio e fiação aérea densa.',
     hint: { country: 'Japão', language: 'japonês' }
+  },
+  {
+    // Estrada costeira sem texto nem monumento: o caso do GeoGuessr, em que
+    // a resposta só pode vir da dedução por sinais visuais.
+    key: 'geoguessr-costa',
+    ocrLines: [],
+    clues: [
+      { kind: 'vegetation', value: 'oliveiras e mato seco', detail: 'Vegetação mediterrânea.' },
+      { kind: 'architecture', value: 'muro caiado de branco', detail: 'Construção típica do Mediterrâneo.' },
+      { kind: 'signage_style', value: 'faixa contínua branca na borda', detail: 'Padrão viário europeu.' },
+      { kind: 'landscape', value: 'costa rochosa ao pôr do sol', detail: 'Litoral recortado.' }
+    ],
+    sceneDescription: 'Estrada costeira ao pôr do sol, muro branco à esquerda e mar à direita.',
+    hint: { country: 'Grécia' }
   },
   {
     key: 'sem-pistas',

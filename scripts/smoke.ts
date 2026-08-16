@@ -32,6 +32,8 @@ const EXPECTED: Expectation[] = [
   { scenario: 'sao-paulo', verdict: 'located', city: 'São Paulo', country: 'Brasil', hasLocation: true },
   { scenario: 'lisboa', verdict: 'located', city: 'Lisboa', country: 'Portugal', hasLocation: true },
   { scenario: 'japao-generico', verdict: 'ambiguous', country: 'Japão', hasLocation: true },
+  // Sem texto nem monumento, o máximo honesto é o país — nunca a cidade.
+  { scenario: 'geoguessr-costa', verdict: 'ambiguous', country: 'Grécia', hasLocation: true },
   { scenario: 'sem-pistas', verdict: 'insufficient', hasLocation: false }
 ]
 

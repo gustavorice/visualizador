@@ -294,7 +294,12 @@ function applyCountryLevelEvidence(
   evidence: Evidence[],
   hint: VisionResult['hint'] | undefined
 ): void {
-  const countryEvidence = evidence.filter((item) => COUNTRY_EVIDENCE.has(item.kind))
+  // Numa foto sem texto nem monumento, o que restringe o país é vegetação,
+  // relevo, arquitetura e sinalização — não só idioma e bandeira. Quando há
+  // palpite de país, toda pista mole vale como reforço dele.
+  const countryEvidence = evidence.filter(
+    (item) => COUNTRY_EVIDENCE.has(item.kind) || (hint?.country && !HARD_EVIDENCE.has(item.kind))
+  )
   if (countryEvidence.length === 0 && !hint?.country) return
 
   const hintedCountry = hint?.country?.toLowerCase()

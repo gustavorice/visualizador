@@ -290,11 +290,20 @@ export function buildQueries(
     })
   }
 
-  // Rede de segurança: se nada duro apareceu mas há palpite de país,
-  // resolvemos ao menos o país. O veredito resultante será 'ambíguo'.
+  /*
+   * Sem nenhuma pista dura, resolvemos ao menos o país. O veredito resultante
+   * é sempre 'ambíguo' — nunca 'localizado' —, então isto não abre caminho
+   * para cravar cidade a partir de sinal fraco.
+   *
+   * A sustentação são TODAS as pistas moles, não só idioma e bandeira: numa
+   * foto de estrada sem texto nem monumento — o caso comum — quem restringe o
+   * país é a vegetação, a sinalização da via, o poste, o telhado. Filtrar
+   * essas fora deixava a consulta sem nenhuma evidência atrás dela, e uma
+   * consulta sem evidência pontua zero por construção.
+   */
   if (queries.length === 0 && hint?.country) {
     const supporting = evidence
-      .filter((item) => item.kind === 'language' || item.kind === 'flag' || item.kind === 'currency')
+      .filter((item) => !HARD_EVIDENCE.has(item.kind))
       .map((item) => item.id)
 
     push(queries, seen, {

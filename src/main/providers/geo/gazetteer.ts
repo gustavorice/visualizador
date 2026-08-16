@@ -121,6 +121,15 @@ export const GAZETTEER: GazetteerEntry[] = [
     score: 0.45
   },
   {
+    match: ['grecia', 'greece'],
+    country: 'Grécia',
+    countryCode: 'GR',
+    lat: 39.0742,
+    lon: 21.8243,
+    displayName: 'Grécia',
+    score: 0.45
+  },
+  {
     match: ['portugal'],
     country: 'Portugal',
     countryCode: 'PT',

@@ -1,4 +1,4 @@
-import { after, before, describe, it } from 'node:test'
+import { after, before, describe, it, type TestContext } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -124,9 +124,20 @@ after(async () => {
   await ocr.dispose()
 })
 
-/** Lança quando a suíte está desligada, com o motivo, em vez de falhar mudo. */
+/**
+ * Interrompe o teste com o motivo quando falta infraestrutura.
+ *
+ * Precisa ser checado DENTRO do teste, não na opção `skip` do `describe`: as
+ * opções são avaliadas quando a suíte é declarada, e nessa hora o gancho
+ * `before` — que é quem descobre se há navegador e OCR — ainda nem rodou.
+ */
+function exigeInfra(t: TestContext): boolean {
+  if (!indisponivel) return false
+  t.skip(indisponivel)
+  return true
+}
+
 function leitura(key: string): OcrResult {
-  if (indisponivel) throw new Error(indisponivel)
   const found = leituras.get(key)
   assert.ok(found, `cena "${key}" não foi lida`)
   return found
@@ -140,10 +151,9 @@ function valores(evidence: Evidence[], kind: EvidenceKind): string[] {
   return evidence.filter((item) => item.kind === kind).map((item) => item.value)
 }
 
-const skip = (): string | false => indisponivel ?? false
-
-describe('imagens renderizadas — São Paulo', { skip: skip() }, () => {
-  it('lê o endereço da tela', () => {
+describe('imagens renderizadas — São Paulo', () => {
+  it('lê o endereço da tela', (t) => {
+    if (exigeInfra(t)) return
     const encontrado = valores(pistas('sao-paulo-mapa'), 'street_sign')
     assert.ok(
       encontrado.some((valor) => /Paulista/.test(valor)),
@@ -151,13 +161,15 @@ describe('imagens renderizadas — São Paulo', { skip: skip() }, () => {
     )
   })
 
-  it('lê o domínio e o telefone', () => {
+  it('lê o domínio e o telefone', (t) => {
+    if (exigeInfra(t)) return
     const encontrado = pistas('sao-paulo-mapa')
     assert.deepEqual(valores(encontrado, 'domain'), ['masp.org.br'])
     assert.ok(valores(encontrado, 'phone').length === 1)
   })
 
-  it('monta a consulta com a cidade lida na tela e sem o ruído administrativo', () => {
+  it('monta a consulta com a cidade lida na tela e sem o ruído administrativo', (t) => {
+    if (exigeInfra(t)) return
     const queries = buildQueries(pistas('sao-paulo-mapa'), undefined, 6)
     const textos = queries.map((query) => query.text)
     assert.ok(
@@ -171,14 +183,16 @@ describe('imagens renderizadas — São Paulo', { skip: skip() }, () => {
   })
 })
 
-describe('imagens renderizadas — Lisboa', { skip: skip() }, () => {
-  it('lê a rua e a localidade', () => {
+describe('imagens renderizadas — Lisboa', () => {
+  it('lê a rua e a localidade', (t) => {
+    if (exigeInfra(t)) return
     const encontrado = pistas('lisboa-mapa')
     assert.ok(valores(encontrado, 'street_sign').some((valor) => /Augusta/.test(valor)))
     assert.ok(valores(encontrado, 'locality').some((valor) => /Lisboa/.test(valor)))
   })
 
-  it('desambigua a Rua Augusta com a cidade certa', () => {
+  it('desambigua a Rua Augusta com a cidade certa', (t) => {
+    if (exigeInfra(t)) return
     // "Rua Augusta" existe em Lisboa e em São Paulo. Sem a cidade na consulta,
     // o geocodificador escolhe por fama, não por acerto.
     const textos = buildQueries(pistas('lisboa-mapa'), undefined, 6).map((query) => query.text)
@@ -189,8 +203,9 @@ describe('imagens renderizadas — Lisboa', { skip: skip() }, () => {
   })
 })
 
-describe('imagens renderizadas — Rio Claro', { skip: skip() }, () => {
-  it('lê o endereço de nome curto que o padrão antigo perdia', () => {
+describe('imagens renderizadas — Rio Claro', () => {
+  it('lê o endereço de nome curto que o padrão antigo perdia', (t) => {
+    if (exigeInfra(t)) return
     const encontrado = valores(pistas('rio-claro-mapa'), 'street_sign')
     assert.ok(
       encontrado.some((valor) => /M 17/.test(valor)),
@@ -198,7 +213,8 @@ describe('imagens renderizadas — Rio Claro', { skip: skip() }, () => {
     )
   })
 
-  it('junta o número predial que aparece antes da via', () => {
+  it('junta o número predial que aparece antes da via', (t) => {
+    if (exigeInfra(t)) return
     const encontrado = valores(pistas('rio-claro-mapa'), 'street_sign')
     assert.ok(
       encontrado.some((valor) => /M 17,\s*985/.test(valor)),
@@ -207,8 +223,9 @@ describe('imagens renderizadas — Rio Claro', { skip: skip() }, () => {
   })
 })
 
-describe('imagens renderizadas — Tóquio', { skip: skip() }, () => {
-  it('lê o domínio territorial e a localidade', () => {
+describe('imagens renderizadas — Tóquio', () => {
+  it('lê o domínio territorial e a localidade', (t) => {
+    if (exigeInfra(t)) return
     const encontrado = pistas('toquio-hotel')
     assert.ok(
       valores(encontrado, 'domain').some((valor) => /co\.jp/.test(valor)),
@@ -217,7 +234,8 @@ describe('imagens renderizadas — Tóquio', { skip: skip() }, () => {
     assert.ok(valores(encontrado, 'locality').some((valor) => /Shibuya/.test(valor)))
   })
 
-  it('preserva "Tokyo Prefecture", que geocodifica bem como está', () => {
+  it('preserva "Tokyo Prefecture", que geocodifica bem como está', (t) => {
+    if (exigeInfra(t)) return
     const textos = buildQueries(pistas('toquio-hotel'), undefined, 6).map((query) => query.text)
     assert.ok(
       textos.some((texto) => /Tokyo Prefecture/.test(texto)),
@@ -226,8 +244,9 @@ describe('imagens renderizadas — Tóquio', { skip: skip() }, () => {
   })
 })
 
-describe('imagens renderizadas — telas sem lugar nenhum', { skip: skip() }, () => {
-  it('não inventa pista numa tela de editor de código', () => {
+describe('imagens renderizadas — telas sem lugar nenhum', () => {
+  it('não inventa pista numa tela de editor de código', (t) => {
+    if (exigeInfra(t)) return
     // O OCR lê MUITO texto aqui. O teste é que nada disso vira lugar: é o
     // caminho honesto de falha, e é onde um extrator ganancioso se trai.
     const lido = leitura('editor-codigo')
@@ -241,15 +260,18 @@ describe('imagens renderizadas — telas sem lugar nenhum', { skip: skip() }, ()
     )
   })
 
-  it('não extrai nada de uma imagem sem texto', () => {
+  it('não extrai nada de uma imagem sem texto', (t) => {
+    if (exigeInfra(t)) return
     assert.deepEqual(pistas('paisagem-sem-texto'), [])
   })
 
-  it('não monta consulta nenhuma sem pista', () => {
+  it('não monta consulta nenhuma sem pista', (t) => {
+    if (exigeInfra(t)) return
     assert.deepEqual(buildQueries(pistas('paisagem-sem-texto'), undefined, 6), [])
   })
 
-  it('sem pista dura, o palpite de país do modelo ainda vira consulta', () => {
+  it('sem pista dura, o palpite de país do modelo ainda vira consulta', (t) => {
+    if (exigeInfra(t)) return
     // É o que salva a foto de estrada: sem isso a análise inteira morre em
     // "não sei" mesmo com o país deduzido corretamente.
     const queries = buildQueries(pistas('paisagem-sem-texto'), { country: 'Grécia' }, 6)

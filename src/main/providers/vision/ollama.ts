@@ -1,7 +1,14 @@
 import { z } from 'zod'
 import type { VisionProvider, ProviderContext } from '../types'
-import type { Evidence, EvidenceKind, VisionResult } from '@shared/types'
-import { EVIDENCE_WEIGHT } from '@shared/confidence'
+import type { Evidence, VisionResult } from '@shared/types'
+import {
+  RESPONSE_SCHEMA,
+  SYSTEM_PROMPT,
+  USER_PROMPT,
+  isPhotoNoise,
+  normalizeKind,
+  weightFor
+} from './prompt'
 import { getSettings } from '../../settings'
 import { postJson, request } from '../../util/http'
 import { evidenceId } from '../../util/id'
@@ -18,30 +25,10 @@ import { log } from '../../util/logger'
  *    quente.
  * 2. Saída estruturada via `format` (JSON Schema) — elimina o parsing frágil
  *    de texto livre e reduz tokens gerados, que é onde o tempo vai.
- * 3. O prompt proíbe o modelo de adivinhar o local. Ele lista PISTAS
- *    OBSERVÁVEIS; quem resolve pista em coordenada é o provedor geográfico.
- *    `country_guess` entra apenas como viés de busca, nunca como resposta.
+ * 3. O prompt (compartilhado em ./prompt.ts) pede que o modelo IDENTIFIQUE
+ *    o lugar quando o reconhecer, mas nunca invente um nome. Quem resolve
+ *    nome em coordenada continua sendo o provedor geográfico.
  */
-
-const KNOWN_KINDS: EvidenceKind[] = [
-  'landmark',
-  'locality',
-  'street_sign',
-  'business',
-  'license_plate',
-  'domain',
-  'phone',
-  'transit',
-  'currency',
-  'language',
-  'flag',
-  'architecture',
-  'vegetation',
-  'landscape',
-  'signage_style',
-  'text',
-  'other'
-]
 
 const ClueSchema = z.object({
   kind: z.string(),
@@ -56,48 +43,6 @@ const ResponseSchema = z.object({
   country_guess: z.string().optional().default(''),
   city_guess: z.string().optional().default('')
 })
-
-/** JSON Schema entregue ao Ollama para forçar saída estruturada. */
-const RESPONSE_FORMAT = {
-  type: 'object',
-  properties: {
-    scene_description: { type: 'string' },
-    clues: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          kind: { type: 'string', enum: KNOWN_KINDS },
-          value: { type: 'string' },
-          detail: { type: 'string' }
-        },
-        required: ['kind', 'value']
-      }
-    },
-    language: { type: 'string' },
-    country_guess: { type: 'string' },
-    city_guess: { type: 'string' }
-  },
-  required: ['scene_description', 'clues']
-} as const
-
-const SYSTEM_PROMPT = `Você é um analista de imagens especializado em pistas geográficas.
-
-Sua tarefa é LISTAR O QUE ESTÁ VISÍVEL na imagem. Você NÃO decide onde a foto foi tirada — outro sistema faz isso a partir das suas pistas.
-
-Regras rígidas:
-- Relate apenas o que dá para VER. Nunca deduza um local e depois invente pistas que o justifiquem.
-- Transcreva textos exatamente como aparecem (placas, nomes de rua, fachadas, cardápios, veículos).
-- Se não houver nenhuma pista geográfica, devolva "clues" vazio. Isso é uma resposta correta e esperada.
-- Não repita a mesma pista com palavras diferentes.
-- "country_guess" e "city_guess" são opcionais e servem só como palpite fraco; deixe vazio se não tiver base visual.
-
-Tipos válidos para "kind": ${KNOWN_KINDS.join(', ')}.
-
-Responda em português do Brasil, em JSON.`
-
-const USER_PROMPT =
-  'Liste as pistas geográficas visíveis nesta imagem: placas, nomes de ruas, estabelecimentos, monumentos, placas de veículos, idioma dos textos, moeda, vegetação, relevo e estilo construtivo.'
 
 interface OllamaChatResponse {
   message?: { content?: string }
@@ -182,7 +127,7 @@ export class OllamaVisionProvider implements VisionProvider {
     const payload = {
       model,
       stream: false,
-      format: RESPONSE_FORMAT,
+      format: RESPONSE_SCHEMA,
       keep_alive: ollamaKeepAlive,
       options: {
         // Temperatura baixa: queremos transcrição fiel, não criatividade.
@@ -206,7 +151,7 @@ export class OllamaVisionProvider implements VisionProvider {
     const parsed = safeParse(content)
 
     const evidence: Evidence[] = parsed.clues
-      .filter((clue) => clue.value.trim().length > 0)
+      .filter((clue) => clue.value.trim().length > 0 && !isPhotoNoise(clue.value))
       .map((clue) => {
         const kind = normalizeKind(clue.kind)
         return {
@@ -214,7 +159,7 @@ export class OllamaVisionProvider implements VisionProvider {
           kind,
           value: clue.value.trim(),
           detail: clue.detail?.trim() || undefined,
-          weight: EVIDENCE_WEIGHT[kind],
+          weight: weightFor(kind, clue.value.trim()),
           source: 'vision' as const
         }
       })
@@ -272,7 +217,3 @@ function safeParse(content: string): z.infer<typeof ResponseSchema> {
   }
 }
 
-function normalizeKind(raw: string): EvidenceKind {
-  const value = raw.trim().toLowerCase().replace(/[\s-]+/g, '_')
-  return (KNOWN_KINDS as string[]).includes(value) ? (value as EvidenceKind) : 'other'
-}

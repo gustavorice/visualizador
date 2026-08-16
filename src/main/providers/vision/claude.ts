@@ -1,8 +1,15 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { z } from 'zod'
 import type { VisionProvider, ProviderContext } from '../types'
-import type { Evidence, EvidenceKind, VisionResult } from '@shared/types'
-import { EVIDENCE_WEIGHT } from '@shared/confidence'
+import type { Evidence, VisionResult } from '@shared/types'
+import {
+  RESPONSE_SCHEMA,
+  SYSTEM_PROMPT,
+  USER_PROMPT,
+  isPhotoNoise,
+  normalizeKind,
+  weightFor
+} from './prompt'
 import { getSettings } from '../../settings'
 import { evidenceId } from '../../util/id'
 import { log } from '../../util/logger'
@@ -25,26 +32,6 @@ import { log } from '../../util/logger'
  * provedor não é padrão e a interface avisa quando ele está ativo.
  */
 
-const KNOWN_KINDS: EvidenceKind[] = [
-  'landmark',
-  'locality',
-  'street_sign',
-  'business',
-  'license_plate',
-  'domain',
-  'phone',
-  'transit',
-  'currency',
-  'language',
-  'flag',
-  'architecture',
-  'vegetation',
-  'landscape',
-  'signage_style',
-  'text',
-  'other'
-]
-
 const ClueSchema = z.object({
   kind: z.string(),
   value: z.string(),
@@ -58,54 +45,6 @@ const ResponseSchema = z.object({
   country_guess: z.string().optional().default(''),
   city_guess: z.string().optional().default('')
 })
-
-/** JSON Schema entregue como `output_config.format` (saída estruturada). */
-const RESPONSE_FORMAT = {
-  type: 'json_schema' as const,
-  schema: {
-    type: 'object',
-    properties: {
-      scene_description: { type: 'string' },
-      clues: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            kind: { type: 'string', enum: KNOWN_KINDS },
-            value: { type: 'string' },
-            detail: { type: 'string' }
-          },
-          required: ['kind', 'value', 'detail'],
-          additionalProperties: false
-        }
-      },
-      language: { type: 'string' },
-      country_guess: { type: 'string' },
-      city_guess: { type: 'string' }
-    },
-    required: ['scene_description', 'clues', 'language', 'country_guess', 'city_guess'],
-    additionalProperties: false
-  }
-}
-
-const SYSTEM_PROMPT = `Você é um analista de imagens especializado em pistas geográficas.
-
-Sua tarefa é LISTAR O QUE ESTÁ VISÍVEL na imagem. Você NÃO decide onde a foto foi tirada — outro sistema resolve isso a partir das suas pistas, consultando bases geográficas reais.
-
-Regras rígidas:
-- Relate apenas o que dá para VER. Nunca deduza um local e depois invente pistas que o justifiquem.
-- Transcreva textos EXATAMENTE como aparecem: placas, nomes de rua com número, fachadas, painéis de mapa, cardápios, veículos.
-- Se a imagem for a captura de um programa (mapa, navegador, editor), leia também o texto da interface: painéis de endereço e títulos de janela costumam conter a resposta literal.
-- Se não houver nenhuma pista geográfica, devolva "clues" vazio. Isso é uma resposta correta e esperada.
-- Não repita a mesma pista com palavras diferentes.
-- "country_guess" e "city_guess" são palpites fracos e opcionais; deixe vazio se não tiver base visual.
-
-Tipos válidos para "kind": ${KNOWN_KINDS.join(', ')}.
-
-Responda em português do Brasil.`
-
-const USER_PROMPT =
-  'Liste as pistas geográficas visíveis nesta imagem: nomes de cidade, placas de rua e números, estabelecimentos, monumentos, placas de veículos, idioma dos textos, moeda, vegetação, relevo e estilo construtivo.'
 
 export class ClaudeVisionProvider implements VisionProvider {
   readonly name = 'claude'
@@ -143,7 +82,7 @@ export class ClaudeVisionProvider implements VisionProvider {
           // "transcreva o que está visível" ele é suficiente — a tarefa é de
           // percepção, não de raciocínio longo.
           effort: 'low',
-          format: RESPONSE_FORMAT
+          format: { type: 'json_schema' as const, schema: RESPONSE_SCHEMA }
         },
         messages: [
           {
@@ -175,7 +114,7 @@ export class ClaudeVisionProvider implements VisionProvider {
     const parsed = safeParse(text)
 
     const evidence: Evidence[] = parsed.clues
-      .filter((clue) => clue.value.trim().length > 0)
+      .filter((clue) => clue.value.trim().length > 0 && !isPhotoNoise(clue.value))
       .map((clue) => {
         const kind = normalizeKind(clue.kind)
         return {
@@ -183,7 +122,7 @@ export class ClaudeVisionProvider implements VisionProvider {
           kind,
           value: clue.value.trim(),
           detail: clue.detail?.trim() || undefined,
-          weight: EVIDENCE_WEIGHT[kind],
+          weight: weightFor(kind, clue.value.trim()),
           source: 'vision' as const
         }
       })
@@ -234,7 +173,3 @@ function safeParse(content: string): z.infer<typeof ResponseSchema> {
   }
 }
 
-function normalizeKind(raw: string): EvidenceKind {
-  const value = raw.trim().toLowerCase().replace(/[\s-]+/g, '_')
-  return (KNOWN_KINDS as string[]).includes(value) ? (value as EvidenceKind) : 'other'
-}

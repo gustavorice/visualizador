@@ -16,6 +16,7 @@ import { MockVisionProvider } from '../src/main/providers/vision/mock'
 import { MockGeoProvider } from '../src/main/providers/geo/mock'
 import { buildQueries, extractOcrEvidence, extractTitleEvidence, mergeEvidence } from '../src/main/pipeline/queries'
 import { fuse } from '../src/main/pipeline/fuse'
+import { isPhotoNoise, weightFor } from '../src/main/providers/vision/prompt'
 import { SCENARIOS } from '../src/main/providers/scenarios'
 import type { LocationCandidate, Verdict } from '../src/shared/types'
 
@@ -170,6 +171,42 @@ function checkTitles(): number {
   return failures
 }
 
+/**
+ * Uma descrição não é uma identificação.
+ *
+ * "ponte vermelha em arco" descreve corretamente a Zhivopisny e não serve
+ * para nada: nenhum mapa procura por isso. Deixá-la com peso de monumento faz
+ * uma descrição genérica dominar a fusão e produzir confiança alta sobre nada.
+ */
+function checkWeights(): number {
+  let failures = 0
+  console.log('\n--- descrição genérica vs. nome próprio ---')
+
+  const cases: Array<{ valor: string; nomeado: boolean }> = [
+    { valor: 'Red arch bridge', nomeado: false },
+    { valor: 'ponte vermelha em arco', nomeado: false },
+    { valor: 'Ponte Zhivopisny', nomeado: true },
+    { valor: 'Zhivopisny', nomeado: true },
+    { valor: 'Catedral de Colônia', nomeado: true }
+  ]
+
+  for (const caso of cases) {
+    const peso = weightFor('landmark', caso.valor)
+    // Nomeado mantém peso de monumento; genérico cai para peso de paisagem.
+    const ok = caso.nomeado ? peso >= 0.8 : peso <= 0.2
+    if (!ok) failures += 1
+    console.log(`${ok ? 'OK  ' : 'FALHA'} ${caso.valor.padEnd(26)} peso=${peso.toFixed(2)}`)
+  }
+
+  for (const ruido of ['Aerial view', 'vista aérea', 'foto']) {
+    const ok = isPhotoNoise(ruido)
+    if (!ok) failures += 1
+    console.log(`${ok ? 'OK  ' : 'FALHA'} descartado como ruído: ${ruido}`)
+  }
+
+  return failures
+}
+
 function checkExtraction(): number {
   let failures = 0
   console.log('\n--- extração de endereço a partir do OCR ---')
@@ -236,6 +273,7 @@ async function main(): Promise<void> {
 
   failures += checkExtraction()
   failures += checkTitles()
+  failures += checkWeights()
 
   console.log(failures === 0 ? '\nTodos os cenários passaram.' : `\n${failures} verificação(ões) falharam.`)
   process.exit(failures === 0 ? 0 : 1)

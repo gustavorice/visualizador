@@ -176,7 +176,8 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
       hint: vision?.hint,
       setup: {
         visionEnabled: settings.visionProvider !== 'off',
-        ocrEnabled: settings.ocrProvider !== 'off'
+        ocrEnabled: settings.ocrProvider !== 'off',
+        ocrLineCount: ocr?.lines.length ?? 0
       }
     })
     timings.compose = composeTime()

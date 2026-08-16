@@ -5,6 +5,7 @@ import { SourcePicker } from './components/SourcePicker'
 import { PreviewPane } from './components/PreviewPane'
 import { ResultPanel } from './components/ResultPanel'
 import { EvidenceList } from './components/EvidenceList'
+import { OcrPanel } from './components/OcrPanel'
 import { MapView } from './components/MapView'
 import { StageTimeline } from './components/StageTimeline'
 import { StatusBar } from './components/StatusBar'
@@ -199,6 +200,8 @@ export function App(): React.JSX.Element {
           {state.error && <div className="error-banner">{state.error}</div>}
 
           <EvidenceList evidence={state.evidence} running={running} />
+
+          <OcrPanel ocr={state.result?.ocr} />
 
           <section className="panel">
             <div className="panel-head">

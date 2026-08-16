@@ -55,7 +55,11 @@ export const DEFAULT_SETTINGS: Settings = {
   captureDir: '',
   allowNetwork: true,
 
-  captureMaxWidth: 1600,
+  // Medido: abaixo de ~1600px o Tesseract deixa de ler texto de interface por
+  // completo, e telas de 1440p/4K seriam reduzidas agressivamente com um teto
+  // baixo. 2560 não amplia nada (o desktopCapturer nunca ultrapassa o nativo),
+  // só evita encolher telas grandes.
+  captureMaxWidth: 2560,
   visionMaxWidth: 1024,
   jpegQuality: 72,
   stageTimeoutMs: 6000,

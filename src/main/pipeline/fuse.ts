@@ -29,7 +29,7 @@ export interface FusionInput {
    * de uma tela sem nenhuma pista, e o usuário não tem como saber que falta
    * ligar um modelo.
    */
-  setup?: { visionEnabled: boolean; ocrEnabled: boolean }
+  setup?: { visionEnabled: boolean; ocrEnabled: boolean; ocrLineCount: number }
 }
 
 export interface FusionOutput {
@@ -297,11 +297,21 @@ function insufficient(evidence: Evidence[], setup: FusionInput['setup']): Fusion
   // A recomendação depende de qual etapa poderia ter encontrado a pista que
   // faltou — dizer só "não sei" deixa o usuário sem próximo passo.
   let reason: string
-  if (setup && !setup.visionEnabled && !foundSomething) {
+  if (setup && !setup.visionEnabled && !foundSomething && setup.ocrLineCount > 0) {
+    // O OCR funcionou: o problema é o CONTEÚDO da tela, não a leitura. Sem
+    // essa distinção o usuário fica mexendo no OCR quando o que falta é
+    // capturar uma tela que tenha endereço, ou ligar a visão.
     reason =
-      'Nenhum texto geográfico foi lido na tela e o modelo de visão está desligado, ' +
-      'então nada pôde ser reconhecido na imagem. Para analisar cenas sem texto ' +
-      '(paisagens, fachadas, monumentos), ligue um modelo de visão em Configurações.'
+      `O OCR leu ${setup.ocrLineCount} linha(s) de texto, mas nenhuma continha endereço, ` +
+      'cidade, domínio ou telefone reconhecível — e o modelo de visão está desligado. ' +
+      'Confira o texto lido no painel abaixo: se o endereço aparece lá, me avise; ' +
+      'se a tela não tem endereço escrito, ligue um modelo de visão em Configurações.'
+  } else if (setup && !setup.visionEnabled && !foundSomething) {
+    reason =
+      'O OCR não conseguiu ler nenhum texto nesta imagem e o modelo de visão está ' +
+      'desligado, então nada pôde ser reconhecido. Se a tela tem texto pequeno, aumente ' +
+      '"Largura da captura" em Configurações; para cenas sem texto (paisagens, fachadas, ' +
+      'monumentos), ligue um modelo de visão.'
   } else if (setup && !setup.ocrEnabled) {
     reason =
       'O OCR está desligado, então nenhum texto da tela foi lido. ' +

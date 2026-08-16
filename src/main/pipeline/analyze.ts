@@ -4,6 +4,7 @@ import type {
   Evidence,
   LocationCandidate,
   OcrResult,
+  QueryOutcome,
   SourceKind,
   StageName,
   VisionResult
@@ -161,7 +162,7 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
     // ---- 5. Geocodificação -------------------------------------------------
     stage('geocode', 'running')
     const geocodeTime = stopwatch()
-    const candidates = await geocodeAll(queries, context)
+    const { candidates, outcomes } = await geocodeAll(queries, context)
     timings.geocode = geocodeTime()
     stage('geocode', 'done', timings.geocode, `${candidates.length} candidato(s)`)
 
@@ -177,7 +178,9 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
       setup: {
         visionEnabled: settings.visionProvider !== 'off',
         ocrEnabled: settings.ocrProvider !== 'off',
-        ocrLineCount: ocr?.lines.length ?? 0
+        ocrLineCount: ocr?.lines.length ?? 0,
+        queriesAttempted: outcomes.length,
+        queriesErrored: outcomes.filter((outcome) => outcome.error).length
       }
     })
     timings.compose = composeTime()
@@ -194,6 +197,7 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
       location: fused.location,
       alternatives: fused.alternatives,
       evidence: fused.evidence,
+      queries: outcomes,
       ocr: ocr ?? undefined,
       vision: vision ?? undefined,
       sourceName,
@@ -238,8 +242,8 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
 async function geocodeAll(
   queries: GeoQuery[],
   context: ProviderContext
-): Promise<LocationCandidate[]> {
-  if (queries.length === 0) return []
+): Promise<{ candidates: LocationCandidate[]; outcomes: QueryOutcome[] }> {
+  if (queries.length === 0) return { candidates: [], outcomes: [] }
 
   const geo = getGeoProvider()
   const settled = await Promise.allSettled(
@@ -247,10 +251,30 @@ async function geocodeAll(
   )
 
   const candidates: LocationCandidate[] = []
-  for (const result of settled) {
-    if (result.status === 'fulfilled') candidates.push(...result.value)
-  }
-  return candidates
+  const outcomes: QueryOutcome[] = []
+
+  settled.forEach((result, index) => {
+    const query = queries[index]!
+    if (result.status === 'fulfilled') {
+      candidates.push(...result.value)
+      outcomes.push({
+        text: query.text,
+        priority: query.priority,
+        resultCount: result.value.length
+      })
+    } else {
+      // O erro é registrado, não engolido: uma consulta bloqueada por limite
+      // de taxa é indistinguível de "lugar não existe" quando some.
+      outcomes.push({
+        text: query.text,
+        priority: query.priority,
+        resultCount: 0,
+        error: describe(result.reason)
+      })
+    }
+  })
+
+  return { candidates, outcomes }
 }
 
 function throwIfAborted(signal: AbortSignal): void {

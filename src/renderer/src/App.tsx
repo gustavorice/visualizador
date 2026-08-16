@@ -6,6 +6,7 @@ import { PreviewPane } from './components/PreviewPane'
 import { ResultPanel } from './components/ResultPanel'
 import { EvidenceList } from './components/EvidenceList'
 import { OcrPanel } from './components/OcrPanel'
+import { QueryPanel } from './components/QueryPanel'
 import { MapView } from './components/MapView'
 import { StageTimeline } from './components/StageTimeline'
 import { StatusBar } from './components/StatusBar'
@@ -202,6 +203,8 @@ export function App(): React.JSX.Element {
           <EvidenceList evidence={state.evidence} running={running} />
 
           <OcrPanel ocr={state.result?.ocr} />
+
+          <QueryPanel queries={state.result?.queries} />
 
           <section className="panel">
             <div className="panel-head">

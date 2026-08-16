@@ -29,7 +29,13 @@ export interface FusionInput {
    * de uma tela sem nenhuma pista, e o usuário não tem como saber que falta
    * ligar um modelo.
    */
-  setup?: { visionEnabled: boolean; ocrEnabled: boolean; ocrLineCount: number }
+  setup?: {
+    visionEnabled: boolean
+    ocrEnabled: boolean
+    ocrLineCount: number
+    queriesAttempted: number
+    queriesErrored: number
+  }
 }
 
 export interface FusionOutput {
@@ -316,10 +322,22 @@ function insufficient(evidence: Evidence[], setup: FusionInput['setup']): Fusion
     reason =
       'O OCR está desligado, então nenhum texto da tela foi lido. ' +
       'Ligue o Tesseract em Configurações — a maior parte das capturas traz o endereço escrito.'
+  } else if (setup && setup.queriesErrored > 0 && setup.queriesErrored === setup.queriesAttempted) {
+    // Consulta bloqueada por rede ou limite de taxa não é "lugar não existe".
+    reason =
+      `Todas as ${setup.queriesAttempted} consulta(s) ao serviço de geocodificação ` +
+      'falharam — provavelmente rede ou limite de requisições. Veja o painel ' +
+      '"Consultas ao mapa" abaixo e tente de novo em alguns segundos.'
+  } else if (setup && setup.queriesAttempted === 0 && foundSomething) {
+    // Pistas existem, mas nenhuma é geocodificável (idioma, vegetação…).
+    reason =
+      'As pistas encontradas não são do tipo que se resolve em coordenada ' +
+      '(idioma, vegetação, arquitetura). Faltou algo concreto como nome de rua, ' +
+      'cidade, estabelecimento ou monumento.'
   } else if (foundSomething) {
     reason =
-      'As pistas encontradas não correspondem a nenhum lugar real, ou não são ' +
-      'específicas o bastante para apontar uma cidade.'
+      'As pistas encontradas foram consultadas no mapa, mas nenhuma corresponde a um ' +
+      'lugar real. Veja o painel "Consultas ao mapa" abaixo para o que foi perguntado.'
   } else {
     reason = 'Nenhuma pista geográfica foi encontrada nesta imagem.'
   }

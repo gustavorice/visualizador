@@ -168,6 +168,20 @@ export interface StageEvent {
   message?: string
 }
 
+/**
+ * O que foi perguntado ao geocodificador e o que voltou.
+ *
+ * Sem isto, "não encontrei o lugar" esconde três causas distintas: nenhuma
+ * consulta chegou a ser montada, as consultas rodaram e não acharam nada, ou
+ * elas falharam por rede/limite de taxa. As três exigem ações diferentes.
+ */
+export interface QueryOutcome {
+  text: string
+  priority: number
+  resultCount: number
+  error?: string
+}
+
 export interface AnalysisResult {
   id: string
   verdict: Verdict
@@ -181,6 +195,8 @@ export interface AnalysisResult {
   location?: ResolvedLocation
   alternatives: LocationCandidate[]
   evidence: Evidence[]
+  /** Consultas de geocodificação e seus resultados, para diagnóstico. */
+  queries: QueryOutcome[]
   ocr?: OcrResult
   vision?: VisionResult
   sourceName: string

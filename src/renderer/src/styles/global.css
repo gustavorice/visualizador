@@ -669,6 +669,46 @@ button:focus-visible {
   flex-shrink: 0;
 }
 
+.query-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+
+.query-list li {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.query-list li:last-child {
+  border-bottom: none;
+}
+
+.query-text {
+  font-family: 'Cascadia Mono', Consolas, monospace;
+  word-break: break-word;
+}
+
+.query-result {
+  color: var(--text-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.query-hit {
+  color: var(--ok);
+}
+
+.query-error {
+  color: var(--bad);
+  white-space: normal;
+}
+
 .sim-banner {
   background: rgba(251, 191, 36, 0.1);
   border: 1px solid rgba(251, 191, 36, 0.45);

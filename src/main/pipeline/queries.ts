@@ -109,6 +109,39 @@ const SIMPLE_PATTERNS: Array<{ kind: Evidence['kind']; regex: RegExp; detail: st
   }
 ]
 
+/**
+ * Extrai pistas do NOME da janela ou tela capturada.
+ *
+ * Navegadores põem o título da página na barra de janela, e serviços de mapa
+ * põem o endereço no título da página. O resultado é que a janela costuma se
+ * chamar literalmente "985 Av. M 17 - Google Maps - Google Chrome": a
+ * resposta, exata, sem passar por reconhecimento de imagem.
+ *
+ * Por ser texto do sistema e não pixels interpretados, esta pista não tem
+ * erro de leitura — daí o peso maior que o equivalente vindo do OCR.
+ */
+export function extractTitleEvidence(sourceName: string): Evidence[] {
+  if (!sourceName?.trim()) return []
+
+  // O título vem em segmentos ("página - site - navegador"); separá-los evita
+  // colar o fim de um no começo do outro.
+  const segments = sourceName.split(/\s+[-–—|]\s+/)
+
+  const evidence = extractOcrEvidence({
+    engine: 'title',
+    text: segments.join('\n'),
+    lines: segments.map((text) => ({ text, confidence: 1 })),
+    durationMs: 0
+  })
+
+  return evidence.map((item) => ({
+    ...item,
+    source: 'title' as const,
+    weight: Math.min(0.9, item.weight + (1 - item.weight) * 0.3),
+    detail: `${item.detail ?? ''} Lido no título da janela — texto exato, sem erro de OCR.`.trim()
+  }))
+}
+
 export function extractOcrEvidence(ocr: OcrResult): Evidence[] {
   const found = new Map<string, Evidence>()
 

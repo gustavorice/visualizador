@@ -16,7 +16,12 @@ import type { GeoQuery, ProviderContext } from '../providers/types'
 import { getSettings } from '../settings'
 import { log, stopwatch } from '../util/logger'
 import { hashBuffer, newId } from '../util/id'
-import { buildQueries, extractOcrEvidence, mergeEvidence } from './queries'
+import {
+  buildQueries,
+  extractOcrEvidence,
+  extractTitleEvidence,
+  mergeEvidence
+} from './queries'
 import { fuse } from './fuse'
 
 export interface AnalyzeOptions {
@@ -132,8 +137,13 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
     // ---- 3. Fusão das pistas ----------------------------------------------
     stage('fuse', 'running')
     const fuseTime = stopwatch()
-    const ocrEvidence = ocr ? extractOcrEvidence(ocr) : []
-    const evidence = mergeEvidence(ocrEvidence, vision?.evidence ?? [])
+    // O título da janela costuma trazer a resposta pronta e exata, então
+    // entra junto com as pistas lidas dos pixels.
+    const textEvidence = [
+      ...extractTitleEvidence(sourceName),
+      ...(ocr ? extractOcrEvidence(ocr) : [])
+    ]
+    const evidence = mergeEvidence(textEvidence, vision?.evidence ?? [])
     timings.fuse = fuseTime()
     stage('fuse', 'done', timings.fuse)
 

@@ -78,7 +78,12 @@ export interface Evidence {
   detail?: string
   /** Quão discriminativa é a pista, 0..1. */
   weight: number
-  source: 'ocr' | 'vision' | 'search'
+  /**
+   * 'title' é o nome da janela ou tela capturada. Vale distinguir de 'ocr':
+   * é texto EXATO vindo do sistema, não texto reconhecido de pixels, então
+   * não carrega erro de leitura.
+   */
+  source: 'ocr' | 'title' | 'vision' | 'search'
   /** true quando a pesquisa externa confirmou a pista. */
   verified?: boolean
 }

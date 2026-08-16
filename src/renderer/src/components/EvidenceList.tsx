@@ -44,7 +44,13 @@ export function EvidenceList({ evidence, running }: Props): React.JSX.Element {
                       </span>
                     )}
                     <span className="evidence-source">
-                      {item.source === 'ocr' ? 'OCR' : item.source === 'vision' ? 'visão' : 'busca'}
+                      {item.source === 'ocr'
+                        ? 'OCR'
+                        : item.source === 'title'
+                          ? 'título da janela'
+                          : item.source === 'vision'
+                            ? 'visão'
+                            : 'busca'}
                     </span>
                   </div>
                   {item.detail && <div className="evidence-detail">{item.detail}</div>}

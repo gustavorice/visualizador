@@ -14,7 +14,7 @@
 import { MockOcrProvider } from '../src/main/providers/ocr/mock'
 import { MockVisionProvider } from '../src/main/providers/vision/mock'
 import { MockGeoProvider } from '../src/main/providers/geo/mock'
-import { buildQueries, extractOcrEvidence, mergeEvidence } from '../src/main/pipeline/queries'
+import { buildQueries, extractOcrEvidence, extractTitleEvidence, mergeEvidence } from '../src/main/pipeline/queries'
 import { fuse } from '../src/main/pipeline/fuse'
 import { SCENARIOS } from '../src/main/providers/scenarios'
 import type { LocationCandidate, Verdict } from '../src/shared/types'
@@ -133,6 +133,43 @@ const EXTRACTION_CASES: Array<{ nome: string; linhas: string[]; espera: string[]
   }
 ]
 
+/**
+ * Títulos de janela reais. Navegadores põem o título da página na barra, e
+ * serviços de mapa põem o endereço no título — a resposta chega exata, sem
+ * passar por reconhecimento de imagem.
+ */
+const TITLE_CASES: Array<{ titulo: string; espera: string[] }> = [
+  { titulo: '985 Av. M 17 - Google Maps - Google Chrome', espera: ['Av. M 17, 985'] },
+  { titulo: 'Rua Augusta, 1200 - Google Maps', espera: ['Rua Augusta, 1200'] },
+  { titulo: 'Visualizador', espera: [] },
+  { titulo: 'analyze.ts - visualizador - Visual Studio Code', espera: [] }
+]
+
+function checkTitles(): number {
+  let failures = 0
+  console.log('\n--- extração a partir do título da janela ---')
+
+  for (const caso of TITLE_CASES) {
+    const values = extractTitleEvidence(caso.titulo).map((item) => item.value)
+    const missing = caso.espera.filter((expected) => !values.includes(expected))
+    // Um título sem endereço não pode inventar pista nenhuma.
+    const spurious = caso.espera.length === 0 && values.length > 0
+
+    const status = missing.length === 0 && !spurious ? 'OK  ' : 'FALHA'
+    console.log(`${status} ${caso.titulo.slice(0, 44).padEnd(46)} ${JSON.stringify(values)}`)
+    for (const item of missing) {
+      console.log(`      -> não extraiu: ${item}`)
+      failures += 1
+    }
+    if (spurious) {
+      console.log('      -> extraiu pista de um título sem endereço')
+      failures += 1
+    }
+  }
+
+  return failures
+}
+
 function checkExtraction(): number {
   let failures = 0
   console.log('\n--- extração de endereço a partir do OCR ---')
@@ -198,6 +235,7 @@ async function main(): Promise<void> {
   }
 
   failures += checkExtraction()
+  failures += checkTitles()
 
   console.log(failures === 0 ? '\nTodos os cenários passaram.' : `\n${failures} verificação(ões) falharam.`)
   process.exit(failures === 0 ? 0 : 1)

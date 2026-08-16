@@ -21,6 +21,15 @@ export interface FusionInput {
   evidence: Evidence[]
   candidates: LocationCandidate[]
   hint?: VisionResult['hint']
+  /**
+   * Quais etapas estavam realmente ativas.
+   *
+   * Um "não sei" só é útil se disser POR QUE não sabe. Sem isso, uma foto de
+   * paisagem analisada com a visão desligada devolve o mesmo texto genérico
+   * de uma tela sem nenhuma pista, e o usuário não tem como saber que falta
+   * ligar um modelo.
+   */
+  setup?: { visionEnabled: boolean; ocrEnabled: boolean }
 }
 
 export interface FusionOutput {
@@ -44,6 +53,8 @@ interface Cluster {
   lon: number
   displayName: string
   geoQuality: number
+  /** Precisão do candidato representante — decide onde o alfinete cai. */
+  precision: number
   evidenceIds: Set<string>
   queries: Set<string>
   score: number
@@ -58,16 +69,12 @@ interface Cluster {
  * sustentado só por "o idioma parece português" também não.
  */
 export function fuse(input: FusionInput): FusionOutput {
-  const { evidence, candidates, hint } = input
+  const { evidence, candidates, hint, setup } = input
   const byId = new Map(evidence.map((item) => [item.id, item]))
 
-  if (candidates.length === 0) {
-    return insufficient(evidence, 'Nenhuma pista da imagem pôde ser resolvida em um lugar real.')
-  }
-
-  const clusters = buildClusters(candidates)
+  const clusters = candidates.length === 0 ? [] : buildClusters(candidates)
   if (clusters.length === 0) {
-    return insufficient(evidence, 'Nenhuma pista da imagem pôde ser resolvida em um lugar real.')
+    return insufficient(evidence, setup)
   }
 
   // Pistas que restringem apenas o país reforçam qualquer cluster daquele país.
@@ -130,7 +137,7 @@ export function fuse(input: FusionInput): FusionOutput {
           lat: winner.lat,
           lon: winner.lon,
           displayName: winner.displayName,
-          uncertaintyKm: uncertaintyKm(granularity, confidence)
+          uncertaintyKm: uncertaintyKm(granularity, confidence, winner.precision)
         }
 
   const alternatives = clusters.slice(1, 4).map((cluster) => ({
@@ -189,6 +196,7 @@ function buildClusters(candidates: LocationCandidate[]): Cluster[] {
         lon: candidate.lon,
         displayName: candidate.displayName,
         geoQuality: candidate.score,
+        precision: candidate.precision ?? 0.5,
         evidenceIds: new Set(candidate.supportedBy ?? []),
         queries: new Set(candidate.query ? [candidate.query] : []),
         score: 0
@@ -198,9 +206,18 @@ function buildClusters(candidates: LocationCandidate[]): Cluster[] {
 
     for (const id of candidate.supportedBy ?? []) existing.evidenceIds.add(id)
     if (candidate.query) existing.queries.add(candidate.query)
-    // Mantém as coordenadas do candidato mais bem pontuado do grupo.
-    if (candidate.score > existing.geoQuality) {
-      existing.geoQuality = candidate.score
+
+    // A qualidade do grupo é a do melhor candidato…
+    existing.geoQuality = Math.max(existing.geoQuality, candidate.score)
+
+    // …mas o REPRESENTANTE é o mais preciso. Todos os candidatos do grupo
+    // concordam sobre a cidade, então entre "Rio Claro" e "Avenida M 17, Rio
+    // Claro" a rua é estritamente melhor: mesmo lugar, alfinete mais exato.
+    // Usar `score` aqui escolheria a cidade, porque uma cidade é mais
+    // "importante" no OSM que uma rua.
+    const candidatePrecision = candidate.precision ?? 0.5
+    if (candidatePrecision > existing.precision) {
+      existing.precision = candidatePrecision
       existing.lat = candidate.lat
       existing.lon = candidate.lon
       existing.displayName = candidate.displayName
@@ -274,7 +291,29 @@ function scoreCluster(cluster: Cluster, byId: Map<string, Evidence>): number {
   return Math.min(MAX_CONFIDENCE, clamp01(score))
 }
 
-function insufficient(evidence: Evidence[], reason: string): FusionOutput {
+function insufficient(evidence: Evidence[], setup: FusionInput['setup']): FusionOutput {
+  const foundSomething = evidence.length > 0
+
+  // A recomendação depende de qual etapa poderia ter encontrado a pista que
+  // faltou — dizer só "não sei" deixa o usuário sem próximo passo.
+  let reason: string
+  if (setup && !setup.visionEnabled && !foundSomething) {
+    reason =
+      'Nenhum texto geográfico foi lido na tela e o modelo de visão está desligado, ' +
+      'então nada pôde ser reconhecido na imagem. Para analisar cenas sem texto ' +
+      '(paisagens, fachadas, monumentos), ligue um modelo de visão em Configurações.'
+  } else if (setup && !setup.ocrEnabled) {
+    reason =
+      'O OCR está desligado, então nenhum texto da tela foi lido. ' +
+      'Ligue o Tesseract em Configurações — a maior parte das capturas traz o endereço escrito.'
+  } else if (foundSomething) {
+    reason =
+      'As pistas encontradas não correspondem a nenhum lugar real, ou não são ' +
+      'específicas o bastante para apontar uma cidade.'
+  } else {
+    reason = 'Nenhuma pista geográfica foi encontrada nesta imagem.'
+  }
+
   return {
     verdict: 'insufficient',
     granularity: 'none',
@@ -299,6 +338,9 @@ function compose(input: {
   const percent = Math.round(confidence * 100)
 
   if (verdict === 'insufficient' || !location) {
+    // O caminho normal para "insuficiente" é a função `insufficient()`, que
+    // monta um texto específico. Este ramo só cobre o caso raro de o veredito
+    // virar insuficiente já com candidatos em mãos.
     return {
       summary:
         'Não há dados suficientes para determinar o local. As pistas encontradas não são específicas o bastante para apontar uma cidade ou país.',

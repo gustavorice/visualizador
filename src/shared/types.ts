@@ -114,6 +114,12 @@ export interface LocationCandidate {
   displayName: string
   /** 0..1 — confiança do provedor nessa resolução. */
   score: number
+  /**
+   * 0..1 — quão específico é o lugar (país → estado → cidade → rua → prédio).
+   * Separado de `score`: uma cidade é mais "importante" que uma rua, mas a
+   * rua é mais precisa, e é a precisão que decide onde cai o alfinete.
+   */
+  precision?: number
   provider: string
   /** Qual consulta gerou este candidato (para auditoria). */
   query?: string
@@ -213,7 +219,9 @@ export type GeoProviderId = 'mock' | 'nominatim'
 export type AnyProviderId = OcrProviderId | VisionProviderId | GeoProviderId
 
 export interface Settings {
-  /** 'mock' roda 100% offline e é o padrão do MVP. */
+  /** Versão do formato. Usada para migrar configurações já salvas em disco. */
+  version: number
+
   ocrProvider: OcrProviderId
   visionProvider: VisionProviderId
   geoProvider: GeoProviderId

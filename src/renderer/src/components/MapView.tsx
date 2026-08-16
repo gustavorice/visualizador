@@ -240,6 +240,9 @@ function circle(lon: number, lat: number, radiusKm: number, points = 64): [numbe
 }
 
 function zoomFor(uncertaintyKm: number): number {
+  // Faixas finas embaixo: um endereço exato merece zoom de rua, não de cidade.
+  if (uncertaintyKm <= 1) return 17
+  if (uncertaintyKm <= 3) return 15
   if (uncertaintyKm <= 20) return 12
   if (uncertaintyKm <= 60) return 10
   if (uncertaintyKm <= 200) return 7

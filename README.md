@@ -24,30 +24,43 @@ npm run build      # typecheck + build de produção
 npm run build:win  # gera instalador NSIS e versão portátil para Windows
 ```
 
-O MVP já vem **funcional e offline**: os três provedores (OCR, visão e
-geografia) começam em modo **simulado**, então dá para clicar em "Analisar
-tela" e ver o fluxo inteiro sem instalar nada além das dependências npm.
+**Funciona no primeiro clique, sem configurar nada e sem chave de API.** Os
+padrões já vêm em provedores reais:
+
+| Etapa | Padrão | Precisa de quê? |
+| --- | --- | --- |
+| OCR | **Tesseract** (local) | nada — já é dependência |
+| Visão | **desligada** | um modelo, se você quiser (veja abaixo) |
+| Geografia | **Nominatim** (OSM) | nada — gratuito e sem chave |
+
+Isso resolve o caso mais comum de captura de tela: mapas, sites e painéis
+quase sempre trazem o endereço escrito, e o OCR lê. Medição real, ponta a
+ponta, numa captura do Street View:
+
+```
+OCR leu ....... "1387 Av. M 17" / "Rio Claro, State of São Paulo"
+extraiu ....... [placa/rua] Av. M 17, 1387   [cidade] Rio Claro, São Paulo
+Nominatim ..... Avenida M 17, Vila Martins, Rio Claro, São Paulo, 13505-150
+veredito ...... Localizado · 78% · -22.38641, -47.55964
+```
+
+**Modelo de visão (opcional).** É o que resolve fotos *sem* texto — paisagens,
+fachadas, monumentos:
+
+| Provedor | Precisão | Precisa de quê? | A imagem sai da máquina? |
+| --- | --- | --- | --- |
+| Desligado | — | — | não |
+| Ollama (local) | boa para texto, fraca para reconhecer lugares | instalar o Ollama | **não** |
+| Claude (nuvem) | alta — reconhece monumentos e fachadas | chave de API | **sim** |
+| Simulado | nenhuma — **ignora a imagem** | — | não |
 
 > ⚠️ **O modo simulado ignora a sua imagem.** Ele devolve um cenário de
-> demonstração fixo, escolhido pelo hash do quadro — o resultado não tem
-> relação com o que está na tela. O app avisa isso em destaque enquanto
-> qualquer provedor simulado estiver ativo. Para respostas de verdade, troque
-> os provedores conforme
-> [`docs/OLLAMA-E-PESQUISA.md`](docs/OLLAMA-E-PESQUISA.md).
+> demonstração fixo, escolhido pelo hash do quadro, então o resultado não tem
+> relação com o que está na tela. Ele não é mais padrão, e o app avisa em
+> destaque enquanto qualquer provedor simulado estiver ativo.
 
-**Qual provedor de visão usar:**
-
-| Provedor | Precisão | A imagem sai da máquina? |
-| --- | --- | --- |
-| Simulado | nenhuma — ignora a imagem | não |
-| Ollama (local) | boa para texto, fraca para reconhecer lugares | não |
-| **Claude (nuvem)** | alta — reconhece monumentos, fachadas, sinalização | **sim** |
-| Desligado | — | não |
-
-Se o que você captura tem texto legível (mapas, sites, Street View), **OCR +
-geocodificação já resolvem sozinhos** — ponha a visão em `Desligado`. Para
-fotos sem texto, o Claude é a diferença entre "dados insuficientes" e uma
-resposta.
+Detalhes de cada provedor em
+[`docs/OLLAMA-E-PESQUISA.md`](docs/OLLAMA-E-PESQUISA.md).
 
 ## A regra que impede o app de inventar lugares
 
@@ -92,10 +105,18 @@ Os três vereditos possíveis:
   a tela. A captura só acontece dentro do handler IPC disparado pelo seu clique.
 - **Nada é salvo por padrão.** As imagens vivem em memória durante a análise.
   Gravar em disco é uma opção desligada (`saveCaptures`).
-- **A imagem não sai da máquina.** O OCR roda localmente e o modelo de visão
-  roda no Ollama em `localhost`. Para a rede sai apenas **texto** — as pistas a
-  serem validadas — e somente com `allowNetwork` ligado, que também vem
-  desligado por padrão.
+- **A imagem não sai da máquina** com os provedores padrão. O OCR roda
+  localmente e o Ollama roda em `localhost`. Para a rede sai apenas **texto** —
+  as pistas a serem validadas. A exceção é explícita: escolher **Claude** como
+  visão envia a imagem para a API, e a interface avisa isso enquanto ele
+  estiver ativo.
+- **`allowNetwork` vem ligado**, porque sem resolver pista em coordenada o app
+  não tem função. Desligue em Configurações para isolamento total — aí nada
+  sai, e o veredito para em "dados insuficientes".
+- **Ressalva honesta:** o Tesseract baixa o pacote de idiomas do CDN na
+  primeira execução. Esse download é interno da biblioteca e não passa pelo
+  controle `allowNetwork` do app. Para evitá-lo, baixe os `.traineddata` e
+  aponte `langPath` (veja `docs/OLLAMA-E-PESQUISA.md`).
 - **Sem telemetria e sem autoatualização.** Não há log em disco; o console
   registra apenas nomes de etapa e durações, nunca o conteúdo da sua tela.
 

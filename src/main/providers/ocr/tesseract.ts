@@ -74,8 +74,13 @@ export class TesseractOcrProvider implements OcrProvider {
   }
 
   async health(): Promise<{ ready: boolean; detail: string }> {
-    if (this.worker) {
-      return { ready: true, detail: `Worker aquecido (${getSettings().ocrLanguages}).` }
+    const langs = getSettings().ocrLanguages
+    if (this.worker) return { ready: true, detail: `Worker aquecido (${langs}).` }
+    // Inicializar leva alguns segundos e baixa os idiomas na primeira vez.
+    // Marcar isso como "não pronto" faria o indicador piscar vermelho no boot
+    // sem que nada esteja errado.
+    if (this.starting) {
+      return { ready: true, detail: `Inicializando o worker (${langs})…` }
     }
     return { ready: false, detail: 'Worker ainda não inicializado.' }
   }

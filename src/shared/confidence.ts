@@ -118,9 +118,24 @@ export function decideVerdict(input: {
   return 'located'
 }
 
-/** Raio de incerteza exibido no mapa, em km. */
-export function uncertaintyKm(granularity: Granularity, confidence: number): number {
+/**
+ * Raio de incerteza exibido no mapa, em km.
+ *
+ * `precision` é o que separa "resolvi a cidade" de "resolvi a rua": as duas
+ * têm granularidade `city`, mas desenhar 12 km de raio em cima de um endereço
+ * exato comunicaria menos certeza do que realmente existe.
+ */
+export function uncertaintyKm(
+  granularity: Granularity,
+  confidence: number,
+  precision = 0.5
+): number {
   const base = granularity === 'city' ? 12 : granularity === 'region' ? 120 : 800
+
+  // Escala do OSM normalizada: ~0,87 é rua, ~1,0 é endereço/prédio.
+  const precisionFactor = precision >= 0.85 ? 0.05 : precision >= 0.75 ? 0.2 : 1
+
   // Confiança baixa alarga o círculo em até 2,5x.
-  return Math.round(base * (1 + (1 - clamp01(confidence)) * 1.5))
+  const km = base * precisionFactor * (1 + (1 - clamp01(confidence)) * 1.5)
+  return Math.max(0.3, Math.round(km * 10) / 10)
 }

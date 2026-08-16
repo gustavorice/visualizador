@@ -273,11 +273,35 @@ export function buildQueries(
   return queries.sort((a, b) => b.priority - a.priority).slice(0, limit)
 }
 
+/**
+ * Qualificadores administrativos que os geocodificadores não entendem.
+ *
+ * Mapas em inglês escrevem "Rio Claro, State of São Paulo"; o Nominatim
+ * devolve ZERO resultados para isso e três para "Rio Claro, São Paulo".
+ * Como o texto vem de uma interface, e não de uma placa, esse ruído é
+ * previsível e vale limpar antes de consultar.
+ *
+ * Só formas PREFIXADAS entram na lista. "Tokyo Prefecture" e "Orange County"
+ * são posfixadas e resolvem bem como estão — removê-las quebraria consultas
+ * que hoje funcionam. Também ficam de fora "City of" e "Cidade de", que
+ * costumam fazer parte do nome real do lugar ("City of London",
+ * "Cidade de Deus").
+ */
+const ADMIN_NOISE =
+  /\b(?:State|Province|Prefecture|Region|Department)\s+of\s+|\b(?:Estado|Província|Provincia|Departamento|Região)\s+(?:de|do|da)\s+/gi
+
+export function cleanForGeocoding(text: string): string {
+  return text.replace(ADMIN_NOISE, '').replace(/\s+/g, ' ').replace(/\s+,/g, ',').trim()
+}
+
 function push(queries: GeoQuery[], seen: Set<string>, query: GeoQuery): void {
-  const key = normalize(query.text)
+  // A limpeza vale para a CONSULTA, não para a evidência: a evidência mostra
+  // ao usuário o que estava escrito na tela, e isso deve continuar fiel.
+  const text = cleanForGeocoding(query.text)
+  const key = normalize(text)
   if (!key || seen.has(key)) return
   seen.add(key)
-  queries.push(query)
+  queries.push({ ...query, text })
 }
 
 function evidenceValueOfKind(evidence: Evidence[], kind: Evidence['kind']): string | undefined {

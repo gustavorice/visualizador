@@ -91,6 +91,12 @@ export function App(): React.JSX.Element {
     return unsubscribe
   }, [startAnalysis])
 
+  // Depois de uma análise os provedores estão comprovadamente de pé (ou não),
+  // então este é o melhor momento para reavaliar os indicadores do rodapé.
+  useEffect(() => {
+    if (state.result) refreshHealth()
+  }, [state.result, refreshHealth])
+
   // Fala o resultado assim que ele chega.
   useEffect(() => {
     const result = state.result
@@ -201,10 +207,21 @@ export function App(): React.JSX.Element {
             <div className="panel-body">
               <p className="privacy-note" style={{ margin: 0 }}>
                 A captura acontece só quando você pede, uma imagem por vez. Não existe
-                captura contínua nem gravação em disco por padrão. A imagem é processada
-                localmente: o OCR roda na máquina e o modelo de visão roda no Ollama em
-                localhost. Para a rede sai apenas <strong>texto</strong> — as pistas a
-                serem validadas — e somente se você permitir o acesso à rede.
+                captura contínua nem gravação em disco por padrão.{' '}
+                {settings?.visionProvider === 'claude' ? (
+                  <>
+                    <strong style={{ color: 'var(--warn)' }}>
+                      A visão está no Claude, então a imagem sai desta máquina
+                    </strong>{' '}
+                    para a API. Troque para Ollama ou Desligado se quiser que ela nunca saia.
+                  </>
+                ) : (
+                  <>
+                    <strong>A imagem não sai desta máquina:</strong> o OCR roda aqui e o
+                    modelo de visão, quando ligado, roda no Ollama em localhost. Para a
+                    rede sai apenas <strong>texto</strong> — as pistas a serem validadas.
+                  </>
+                )}
               </p>
             </div>
           </section>

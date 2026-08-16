@@ -24,6 +24,8 @@ interface NominatimPlace {
   lon: string
   display_name: string
   importance?: number
+  /** Escala do OSM: ~4 país, ~8 estado, ~16 cidade, ~26 rua, ~30 endereço. */
+  place_rank?: number
   address?: {
     city?: string
     town?: string
@@ -147,6 +149,7 @@ function toCandidate(
     displayName: place.display_name,
     // `importance` do Nominatim já é 0..1 e reflete relevância do lugar.
     score: clamp(place.importance ?? 0.4),
+    precision: clamp((place.place_rank ?? 16) / 30),
     provider,
     query: query.text,
     supportedBy: query.evidenceIds

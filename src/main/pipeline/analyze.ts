@@ -170,7 +170,15 @@ export async function analyze(options: AnalyzeOptions): Promise<AnalysisResult> 
     // ---- 6. Veredito -------------------------------------------------------
     stage('compose', 'running')
     const composeTime = stopwatch()
-    const fused = fuse({ evidence, candidates, hint: vision?.hint })
+    const fused = fuse({
+      evidence,
+      candidates,
+      hint: vision?.hint,
+      setup: {
+        visionEnabled: settings.visionProvider !== 'off',
+        ocrEnabled: settings.ocrProvider !== 'off'
+      }
+    })
     timings.compose = composeTime()
     stage('compose', 'done', timings.compose)
 

@@ -18,6 +18,8 @@ import {
   noisyOr,
   uncertaintyKm
 } from '@shared/confidence'
+import { countryCodeFor, countryCodeForLanguage } from '../providers/geo/countries'
+import { normalize } from '../providers/geo/gazetteer'
 
 export interface FusionInput {
   evidence: Evidence[]
@@ -63,6 +65,8 @@ interface Cluster {
   geoQuality: number
   /** Precisão do candidato representante — decide onde o alfinete cai. */
   precision: number
+  /** Melhor posição que este lugar alcançou em alguma lista de resultados. */
+  rank: number
   evidenceIds: Set<string>
   queries: Set<string>
   score: number
@@ -101,20 +105,34 @@ export function fuse(input: FusionInput): FusionOutput {
 
   /*
    * Conflito real: o segundo colocado aponta para OUTRO país com força
-   * comparável E com pistas de confiabilidade comparável.
+   * comparável, com pistas de confiabilidade comparável, E com uma pista tão
+   * concreta quanto a do vencedor.
    *
-   * A segunda condição importa. Um endereço lido do título da janela é texto
+   * A confiabilidade importa. Um endereço lido do título da janela é texto
    * exato; um endereço quase idêntico lido pelo OCR pode ser o MESMO endereço
    * com um caractere perdido — foi o que aconteceu com "Av. M 17" virando
    * "Av. 17", que existe na Argentina. Sem comparar a confiabilidade das
-   * origens, um erro de leitura empata com o dado exato e derruba um acerto
-   * para "ambíguo".
+   * origens, um erro de leitura empata com o dado exato e derruba um acerto.
+   *
+   * A pista dura importa igualmente, e por outro motivo: um punhado de sinais
+   * de ambiente ("oliveiras", "muro caiado", "parece grego") mais um palpite
+   * de país do modelo formam um cluster que PONTUA como um concorrente sem
+   * SER um. Ele não afirma uma cidade, afirma um país inteiro por semelhança.
+   * Deixá-lo empatar com um endereço lido da tela transformava um acerto em
+   * "não é possível confirmar" — e sem pista dura de nenhum lado o veredito
+   * já não passa de 'ambíguo' de qualquer forma, então nada se perde.
    */
+  const runnerUpHasHard = [...(runnerUp?.evidenceIds ?? [])].some((id) => {
+    const item = byId.get(id)
+    return !!item && HARD_EVIDENCE.has(item.kind)
+  })
+
   const conflicting =
     !!runnerUp &&
     !!runnerUp.countryCode &&
     !!winner.countryCode &&
     runnerUp.countryCode !== winner.countryCode &&
+    runnerUpHasHard &&
     runnerUp.score >= winner.score * 0.8 &&
     runnerUp.trust >= winner.trust - 0.15
 
@@ -161,20 +179,33 @@ export function fuse(input: FusionInput): FusionOutput {
     winner.evidenceIds.has(item.id) ? { ...item, verified: true } : item
   )
 
-  // Regra dura: veredito insuficiente NUNCA carrega localização.
-  const location: ResolvedLocation | undefined =
-    verdict === 'insufficient'
-      ? undefined
-      : {
-          city: winner.city,
-          region: winner.region,
-          country: winner.country,
-          countryCode: winner.countryCode,
-          lat: winner.lat,
-          lon: winner.lon,
-          displayName: winner.displayName,
-          uncertaintyKm: uncertaintyKm(granularity, confidence, winner.precision)
-        }
+  /*
+   * Regra dura: veredito insuficiente NUNCA carrega localização — e o texto
+   * também não pode virar genérico aqui.
+   *
+   * Chegar a este ponto com veredito insuficiente significa que as consultas
+   * resolveram em algum lugar, mas a sustentação ficou fraca demais. É um
+   * diagnóstico específico e útil ("achei um lugar, não confio nele"), então
+   * ele é dito com essas palavras em vez de cair no texto padrão de
+   * "nenhuma pista encontrada", que descreveria a situação errada.
+   */
+  if (verdict === 'insufficient') {
+    // Sem as marcas de `verified`: elas significam "sustentou a conclusão", e
+    // aqui não há conclusão nenhuma. Um visto verde ao lado de uma pista numa
+    // tela que diz "não sei" afirma duas coisas contrárias ao mesmo tempo.
+    return insufficient(evidence, setup, { weakMatch: true })
+  }
+
+  const location: ResolvedLocation = {
+    city: winner.city,
+    region: winner.region,
+    country: winner.country,
+    countryCode: winner.countryCode,
+    lat: winner.lat,
+    lon: winner.lon,
+    displayName: winner.displayName,
+    uncertaintyKm: uncertaintyKm(granularity, confidence, winner.precision)
+  }
 
   const alternatives = clusters.slice(1, 4).map((cluster) => ({
     city: cluster.city,
@@ -201,7 +232,7 @@ export function fuse(input: FusionInput): FusionOutput {
 
   return {
     verdict,
-    granularity: verdict === 'insufficient' ? 'none' : granularity,
+    granularity,
     confidence,
     location,
     alternatives,
@@ -234,6 +265,7 @@ function buildClusters(candidates: LocationCandidate[]): Cluster[] {
         displayName: candidate.displayName,
         geoQuality: candidate.score,
         precision: candidate.precision ?? 0.5,
+        rank: candidate.rank ?? 0,
         evidenceIds: new Set(candidate.supportedBy ?? []),
         queries: new Set(candidate.query ? [candidate.query] : []),
         score: 0,
@@ -248,6 +280,24 @@ function buildClusters(candidates: LocationCandidate[]): Cluster[] {
     // A qualidade do grupo é a do melhor candidato…
     existing.geoQuality = Math.max(existing.geoQuality, candidate.score)
 
+    /*
+     * Lacunas administrativas são preenchidas por QUALQUER candidato do grupo,
+     * independentemente de precisão. Todos concordam sobre a cidade, então um
+     * resultado que traz o estado completa o que falta em outro que não traz.
+     *
+     * Isto ficava dentro do teste de precisão abaixo, e a consequência era
+     * concreta: a resolução de rua costuma vir sem `state`, a de cidade vem
+     * com. Como a rua é mais precisa, ela virava representante e o campo
+     * "Estado" saía vazio na tela mesmo com o estado tendo sido resolvido.
+     */
+    existing.region ??= candidate.region
+    existing.country ??= candidate.country
+    existing.countryCode ??= candidate.countryCode
+
+    // Melhor posição alcançada: basta UMA consulta ter colocado este lugar no
+    // topo para ele deixar de ser um resultado marginal.
+    existing.rank = Math.min(existing.rank, candidate.rank ?? 0)
+
     // …mas o REPRESENTANTE é o mais preciso. Todos os candidatos do grupo
     // concordam sobre a cidade, então entre "Rio Claro" e "Avenida M 17, Rio
     // Claro" a rua é estritamente melhor: mesmo lugar, alfinete mais exato.
@@ -259,7 +309,6 @@ function buildClusters(candidates: LocationCandidate[]): Cluster[] {
       existing.lat = candidate.lat
       existing.lon = candidate.lon
       existing.displayName = candidate.displayName
-      existing.region ??= candidate.region
     }
   }
 
@@ -298,19 +347,63 @@ function applyCountryLevelEvidence(
   // relevo, arquitetura e sinalização — não só idioma e bandeira. Quando há
   // palpite de país, toda pista mole vale como reforço dele.
   const countryEvidence = evidence.filter(
-    (item) => COUNTRY_EVIDENCE.has(item.kind) || (hint?.country && !HARD_EVIDENCE.has(item.kind))
+    (item) => COUNTRY_EVIDENCE.has(item.kind) || (!!hint?.country && !HARD_EVIDENCE.has(item.kind))
   )
-  if (countryEvidence.length === 0 && !hint?.country) return
+  if (countryEvidence.length === 0) return
 
-  const hintedCountry = hint?.country?.toLowerCase()
+  const hintedCode = countryCodeFor(hint?.country)
 
   for (const cluster of clusters) {
-    const clusterCountry = cluster.country?.toLowerCase()
-    if (!clusterCountry) continue
-    if (hintedCountry && clusterCountry.includes(hintedCountry)) {
-      for (const item of countryEvidence) cluster.evidenceIds.add(item.id)
+    for (const item of countryEvidence) {
+      if (matchesCluster(cluster, item, hint, hintedCode)) cluster.evidenceIds.add(item.id)
     }
   }
+}
+
+/**
+ * Esta pista de país sustenta este cluster?
+ *
+ * Duas rotas. A primeira é o palpite do modelo: se ele disse "Grécia" e o
+ * cluster é grego, toda pista mole reforça. A segunda existe para quando o
+ * modelo NÃO deu palpite de país — aí uma bandeira ou um idioma ainda apontam
+ * para um país sozinhos, e antes essas pistas simplesmente não eram contadas,
+ * deixando o cluster sem sustentação nenhuma e com pontuação zero.
+ */
+function matchesCluster(
+  cluster: Cluster,
+  item: Evidence,
+  hint: VisionResult['hint'] | undefined,
+  hintedCode: string | undefined
+): boolean {
+  if (sameCountry(cluster, hint?.country, hintedCode)) return true
+
+  const implied =
+    item.kind === 'flag'
+      ? countryCodeFor(item.value)
+      : item.kind === 'language'
+        ? countryCodeForLanguage(item.value)
+        : undefined
+
+  return !!implied && implied === cluster.countryCode
+}
+
+/** Compara o palpite textual de país com o país do cluster. */
+function sameCountry(
+  cluster: Cluster,
+  hintedName: string | undefined,
+  hintedCode: string | undefined
+): boolean {
+  if (!hintedName) return false
+  // Código ISO quando os dois lados resolvem: imune a "Estados Unidos" vs
+  // "Estados Unidos da América".
+  if (hintedCode && cluster.countryCode) return hintedCode === cluster.countryCode
+
+  const hinted = normalize(hintedName)
+  const country = normalize(cluster.country ?? '')
+  // Comparação textual só com nome longo o bastante para não colidir: "Irã"
+  // casaria dentro de "Irlanda" por continência.
+  if (!country || hinted.length < 4) return hinted === country
+  return country.includes(hinted) || hinted.includes(country)
 }
 
 /** Confiabilidade do grupo: a melhor origem entre as pistas que o sustentam. */
@@ -341,7 +434,21 @@ function scoreCluster(cluster: Cluster, byId: Map<string, Evidence>): number {
    * bônus, para não perder o caso do monumento famoso.
    */
   const resolution = Math.max(clamp01(cluster.precision), clamp01(cluster.geoQuality))
-  const geoFactor = 0.55 + 0.45 * resolution
+
+  /*
+   * A POSIÇÃO na lista do geocodificador é o que compara lugares diferentes.
+   *
+   * Nem `precision` nem `geoQuality` servem para isso, e a combinação dos dois
+   * chegava a inverter o resultado: para "Rio Claro, São Paulo" o Nominatim
+   * devolve a cidade certa em primeiro (rank OSM 16) e um bairro homônimo de
+   * São José dos Campos em terceiro (rank OSM 19). O bairro é o objeto mais
+   * específico, então vencia por precisão — e o app respondia a cidade errada
+   * com toda a confiança. A ordem da lista já embute fama, completude do
+   * casamento e proximidade; é o julgamento do geocodificador, e ele é melhor
+   * que qualquer proxy montado aqui.
+   */
+  const relevance = 1 / (1 + 0.5 * Math.max(0, cluster.rank))
+  const geoFactor = (0.55 + 0.45 * resolution) * relevance
   let score = evidenceStrength * geoFactor
 
   // Corroboração: consultas independentes que caem no mesmo lugar.
@@ -352,13 +459,22 @@ function scoreCluster(cluster: Cluster, byId: Map<string, Evidence>): number {
   return Math.min(MAX_CONFIDENCE, clamp01(score))
 }
 
-function insufficient(evidence: Evidence[], setup: FusionInput['setup']): FusionOutput {
+function insufficient(
+  evidence: Evidence[],
+  setup: FusionInput['setup'],
+  options: { weakMatch?: boolean } = {}
+): FusionOutput {
   const foundSomething = evidence.length > 0
 
   // A recomendação depende de qual etapa poderia ter encontrado a pista que
   // faltou — dizer só "não sei" deixa o usuário sem próximo passo.
   let reason: string
-  if (setup && !setup.visionEnabled && !foundSomething && setup.ocrLineCount > 0) {
+  if (options.weakMatch) {
+    reason =
+      'As pistas resolveram em um lugar, mas a sustentação é fraca demais para afirmá-lo: ' +
+      'são poucas pistas, ou pistas que sozinhas não distinguem um lugar de outro. ' +
+      'Uma captura com nome de rua, cidade, estabelecimento ou monumento visível resolveria.'
+  } else if (setup && !setup.visionEnabled && !foundSomething && setup.ocrLineCount > 0) {
     // O OCR funcionou: o problema é o CONTEÚDO da tela, não a leitura. Sem
     // essa distinção o usuário fica mexendo no OCR quando o que falta é
     // capturar uma tela que tenha endereço, ou ligar a visão.

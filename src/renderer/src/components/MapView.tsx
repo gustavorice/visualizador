@@ -228,8 +228,11 @@ function supportsWebGl2(): boolean {
 function circle(lon: number, lat: number, radiusKm: number, points = 64): [number, number][] {
   const coordinates: [number, number][] = []
   const latRadius = radiusKm / 110.574
-  // A distância por grau de longitude encolhe conforme se afasta do equador.
-  const lonRadius = radiusKm / (111.32 * Math.cos((lat * Math.PI) / 180))
+  // A distância por grau de longitude encolhe conforme se afasta do equador —
+  // e vira zero exatamente nos polos, o que produziria uma coordenada
+  // infinita e um mapa em branco sem nenhum erro visível.
+  const cosLat = Math.max(0.01, Math.abs(Math.cos((lat * Math.PI) / 180)))
+  const lonRadius = radiusKm / (111.32 * cosLat)
 
   for (let index = 0; index <= points; index += 1) {
     const angle = (index / points) * 2 * Math.PI

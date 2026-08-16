@@ -9,6 +9,11 @@ Thumbs.db
 .env
 .env.local
 .vite/
+.cache/
+# Dados de idioma do Tesseract, baixados sob demanda (~7 MB).
+*.traineddata
+*.traineddata.gz
+
 tsconfig.tsbuildinfo
 *.tsbuildinfo
 

@@ -1,6 +1,6 @@
 import type { LocationCandidate } from '@shared/types'
 import type { ProviderContext } from '../types'
-import { getJson } from '../../util/http'
+import { getJson, type RequestOptions } from '../../util/http'
 import { Lru } from '../../util/lru'
 import { log } from '../../util/logger'
 
@@ -14,16 +14,18 @@ import { log } from '../../util/logger'
  * responde "Ponte Zhivopisny, Moscou" acerta o lugar e mesmo assim não
  * geocodifica.
  *
- * A Wikidata é multilíngue por construção: a busca de texto completo encontra
- * a entidade a partir do nome em praticamente qualquer idioma, e a propriedade
- * P625 dá a coordenada. É a ferramenta certa para "nome de lugar famoso ->
- * coordenada", assim como o Nominatim é para "endereço -> coordenada".
+ * A Wikidata é multilíngue por construção, e oferece DUAS buscas que erram em
+ * direções opostas — daí o encadeamento abaixo em vez de uma só.
  */
 
 const API = 'https://www.wikidata.org/w/api.php'
 const cache = new Lru<string, LocationCandidate | null>(200)
 
-interface SearchResponse {
+interface LabelSearchResponse {
+  search?: Array<{ id?: string }>
+}
+
+interface FullTextResponse {
   query?: { search?: Array<{ title?: string }> }
 }
 
@@ -48,11 +50,21 @@ function userAgent(contact: string): string {
 /**
  * Procura um lugar nomeado e devolve a coordenada.
  *
- * Usa a busca de TEXTO COMPLETO (`list=search`) em vez de `wbsearchentities`:
- * a segunda casa com rótulos de um idioma só, e o rótulo português desta ponte
- * é "Ponte Pitoresca" — não bate com "Ponte Zhivopisny". A busca de texto
- * completo varre todos os idiomas e aliases, que é o que faz o nome dado pelo
- * modelo funcionar.
+ * As duas buscas da Wikidata falham em casos opostos, e foi medindo os dois
+ * que esta ordem apareceu:
+ *
+ *  - `wbsearchentities` casa RÓTULOS e apelidos e ordena por proeminência.
+ *    Para "Cristo Redentor" devolve a estátua do Rio em primeiro lugar. É o
+ *    que se quer quase sempre: quem fotografa um monumento fotografa o famoso.
+ *  - a busca de TEXTO COMPLETO ordena por relevância textual, e para o mesmo
+ *    "Cristo Redentor" devolve oito homônimos obscuros sem que o do Rio
+ *    apareça em nenhum deles — mas é a única que encontra "Ponte Zhivopisny",
+ *    nome que não é rótulo nem apelido em idioma nenhum, só aparece no CORPO
+ *    do artigo.
+ *
+ * Por isso a proeminência vem primeiro e o texto completo entra como resgate.
+ * Inverter a ordem devolve monumentos errados para nomes famosos, que é o erro
+ * mais caro que este resolvedor pode cometer.
  */
 export async function resolveLandmark(
   text: string,
@@ -65,73 +77,44 @@ export async function resolveLandmark(
   const cached = cache.get(key)
   if (cached !== undefined) return cached
 
-  const headers = { 'user-agent': userAgent(contact) }
-  const options = { timeoutMs: context.timeoutMs, signal: context.signal, headers }
+  const options: RequestOptions = {
+    timeoutMs: context.timeoutMs,
+    signal: context.signal,
+    headers: { 'user-agent': userAgent(contact) }
+  }
 
   /*
    * O modelo costuma responder "Ponte Zhivopisny, Moscou" — nome e cidade
-   * juntos. A busca de texto completo trata isso como uma frase só e não
-   * encontra nada, enquanto "Ponte Zhivopisny" sozinho acha na hora. Então
-   * tentamos a forma completa primeiro (mais específica, desambigua nomes
-   * repetidos) e caímos para só o nome quando ela falha.
+   * juntos. Nenhuma das buscas casa a frase inteira, enquanto só o nome
+   * encontra na hora. A forma completa é tentada primeiro mesmo assim, porque
+   * quando ela funciona já vem desambiguada.
    */
-  const attempts = [text]
+  const names = [text.trim()]
   const beforeComma = text.split(',')[0]?.trim()
-  if (beforeComma && beforeComma !== text) attempts.push(beforeComma)
+  if (beforeComma && beforeComma !== text.trim()) names.push(beforeComma)
 
   try {
-    let ids: string[] = []
-    for (const attempt of attempts) {
-      const search = new URL(API)
-      search.searchParams.set('action', 'query')
-      search.searchParams.set('list', 'search')
-      search.searchParams.set('srsearch', attempt)
-      search.searchParams.set('srlimit', '3')
-      search.searchParams.set('format', 'json')
+    // Todas as tentativas por rótulo antes de qualquer uma por texto completo:
+    // a ordem entre as ESTRATÉGIAS importa mais que a ordem entre os nomes.
+    for (const search of [searchByLabel, searchByFullText]) {
+      for (const name of names) {
+        const ids = await search(name, options)
+        const found = await firstWithCoordinate(ids, options)
+        if (!found) continue
 
-      const found = await getJson<SearchResponse>(search.toString(), options)
-      ids = (found.query?.search ?? [])
-        .map((item) => item.title ?? '')
-        .filter((id) => /^Q\d+$/.test(id))
-      if (ids.length > 0) break
-    }
-
-    if (ids.length === 0) {
-      cache.set(key, null)
-      return null
-    }
-
-    const entities = new URL(API)
-    entities.searchParams.set('action', 'wbgetentities')
-    entities.searchParams.set('ids', ids.join('|'))
-    entities.searchParams.set('props', 'claims|labels')
-    entities.searchParams.set('languages', 'pt|en')
-    entities.searchParams.set('format', 'json')
-
-    const detail = await getJson<EntitiesResponse>(entities.toString(), options)
-
-    // A ordem da busca é por relevância, então o primeiro que TEM coordenada é
-    // o melhor palpite. Entidades sem P625 (conceitos, pessoas) são puladas.
-    for (const id of ids) {
-      const entity = detail.entities?.[id]
-      const point = entity?.claims?.P625?.[0]?.mainsnak?.datavalue?.value
-      if (typeof point?.latitude !== 'number' || typeof point?.longitude !== 'number') continue
-
-      const label =
-        entity?.labels?.pt?.value ?? entity?.labels?.en?.value ?? text
-
-      const candidate: LocationCandidate = {
-        lat: point.latitude,
-        lon: point.longitude,
-        displayName: label,
-        score: 0.85,
-        // Um monumento nomeado é uma resolução bastante específica.
-        precision: 0.9,
-        provider: 'wikidata',
-        query: text
+        const candidate: LocationCandidate = {
+          lat: found.lat,
+          lon: found.lon,
+          displayName: found.label ?? text,
+          score: 0.85,
+          // Um monumento nomeado é uma resolução bastante específica.
+          precision: 0.9,
+          provider: 'wikidata',
+          query: text
+        }
+        cache.set(key, candidate)
+        return candidate
       }
-      cache.set(key, candidate)
-      return candidate
     }
 
     cache.set(key, null)
@@ -140,4 +123,89 @@ export async function resolveLandmark(
     log.error('busca na wikidata falhou', error)
     return null
   }
+}
+
+/**
+ * Busca por rótulo e apelido, ordenada por proeminência.
+ *
+ * Tenta português e depois inglês porque o modelo escreve em pt-BR mas
+ * mantém nomes próprios como aparecem nos mapas, que muitas vezes é o inglês.
+ */
+async function searchByLabel(name: string, options: RequestOptions): Promise<string[]> {
+  for (const language of ['pt', 'en']) {
+    const url = new URL(API)
+    url.searchParams.set('action', 'wbsearchentities')
+    url.searchParams.set('search', name)
+    url.searchParams.set('language', language)
+    url.searchParams.set('uselang', language)
+    url.searchParams.set('type', 'item')
+    url.searchParams.set('limit', '5')
+    url.searchParams.set('format', 'json')
+
+    const body = await getJson<LabelSearchResponse>(url.toString(), options)
+    const ids = (body.search ?? [])
+      .map((item) => item.id ?? '')
+      .filter((id) => /^Q\d+$/.test(id))
+    if (ids.length > 0) return ids
+  }
+  return []
+}
+
+/**
+ * Busca no texto dos artigos — varre todos os idiomas e aliases, que é o que
+ * faz um nome transliterado funcionar.
+ *
+ * `haswbstatement:P625` limita a itens que TÊM coordenada. Sem isso a lista
+ * vinha cheia de conceitos, pessoas e obras de arte homônimas, e cada uma
+ * gastava uma vaga das cinco antes de ser descartada na etapa seguinte.
+ */
+async function searchByFullText(name: string, options: RequestOptions): Promise<string[]> {
+  const url = new URL(API)
+  url.searchParams.set('action', 'query')
+  url.searchParams.set('list', 'search')
+  url.searchParams.set('srsearch', `${name} haswbstatement:P625`)
+  url.searchParams.set('srlimit', '5')
+  url.searchParams.set('format', 'json')
+
+  const body = await getJson<FullTextResponse>(url.toString(), options)
+  return (body.query?.search ?? [])
+    .map((item) => item.title ?? '')
+    .filter((id) => /^Q\d+$/.test(id))
+}
+
+/**
+ * Primeira entidade da lista que tem coordenada.
+ *
+ * A ordem vem da busca e é significativa, então percorremos preservando-a.
+ * Entidades sem P625 (conceitos, pessoas, pinturas com o nome do monumento)
+ * são puladas em vez de descartarem a busca inteira.
+ */
+async function firstWithCoordinate(
+  ids: string[],
+  options: RequestOptions
+): Promise<{ lat: number; lon: number; label?: string } | null> {
+  if (ids.length === 0) return null
+
+  const url = new URL(API)
+  url.searchParams.set('action', 'wbgetentities')
+  url.searchParams.set('ids', ids.join('|'))
+  url.searchParams.set('props', 'claims|labels')
+  url.searchParams.set('languages', 'pt|en')
+  url.searchParams.set('format', 'json')
+
+  const detail = await getJson<EntitiesResponse>(url.toString(), options)
+
+  for (const id of ids) {
+    const entity = detail.entities?.[id]
+    const point = entity?.claims?.P625?.[0]?.mainsnak?.datavalue?.value
+    if (typeof point?.latitude !== 'number' || typeof point?.longitude !== 'number') continue
+
+    return {
+      lat: point.latitude,
+      lon: point.longitude,
+      label: entity?.labels?.pt?.value ?? entity?.labels?.en?.value
+    }
+  }
+
+  return null
 }

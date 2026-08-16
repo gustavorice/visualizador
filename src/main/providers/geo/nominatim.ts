@@ -54,9 +54,20 @@ export class NominatimGeoProvider implements GeoProvider {
     return getSettings().nominatimUrl.includes('nominatim.openstreetmap.org')
   }
 
-  /** Quantas consultas vale a pena disparar por análise. */
+  /**
+   * Quantas consultas vale a pena disparar por análise.
+   *
+   * Na instância pública cada consulta custa ~1,1s de espera forçada pelo
+   * limitador, então o número é um orçamento de latência. Duas era apertado
+   * demais: um único endereço já gasta as duas vagas (a variante com cidade e
+   * a sem), e qualquer pista adicional — o monumento que a visão reconheceu, a
+   * cidade lida na tela — era descartada antes de ser testada. Quatro custa
+   * ~3,3s no pior caso, contra os 30s que o modelo de visão leva sozinho, e
+   * devolve a chance de a segunda pista salvar a análise quando a primeira não
+   * resolve. Quem hospeda o Nominatim localmente não paga nada disso.
+   */
   maxQueries(): number {
-    return this.isPublicInstance() ? 2 : 5
+    return this.isPublicInstance() ? 4 : 6
   }
 
   async verify(queries: GeoQuery[], context: ProviderContext): Promise<GeoQuery[]> {
@@ -81,7 +92,7 @@ export class NominatimGeoProvider implements GeoProvider {
       const landmark = await resolveLandmark(text, settings.contactEmail, context)
       if (landmark) {
         const place = await this.reverse(landmark.lat, landmark.lon, context)
-        return [{ ...landmark, ...place, supportedBy: query.evidenceIds, query: text }]
+        return [{ ...landmark, ...place, rank: 0, supportedBy: query.evidenceIds, query: text }]
       }
       // Sem correspondência na Wikidata, ainda vale tentar o Nominatim: pode
       // ser um lugar mapeado no OSM sob o nome que o modelo usou.
@@ -114,7 +125,7 @@ export class NominatimGeoProvider implements GeoProvider {
       })
     )
 
-    const candidates = places.map((place) => toCandidate(place, query, this.name))
+    const candidates = places.map((place, index) => toCandidate(place, query, this.name, index))
     cache.set(cacheKey, candidates)
     return candidates
   }
@@ -195,7 +206,8 @@ function userAgent(): string {
 function toCandidate(
   place: NominatimPlace,
   query: GeoQuery,
-  provider: string
+  provider: string,
+  rank: number
 ): LocationCandidate {
   const address = place.address ?? {}
   const city =
@@ -212,6 +224,7 @@ function toCandidate(
     // `importance` do Nominatim já é 0..1 e reflete relevância do lugar.
     score: clamp(place.importance ?? 0.4),
     precision: clamp((place.place_rank ?? 16) / 30),
+    rank,
     provider,
     query: query.text,
     supportedBy: query.evidenceIds

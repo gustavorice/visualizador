@@ -19,10 +19,35 @@ npm run dev        # abre o app em modo desenvolvimento
 Outros comandos:
 
 ```bash
+npm test           # suíte de testes (rápida, sem rede)
+npm run test:live  # + testes contra Nominatim e Wikidata de verdade
 npm run verify     # roda o núcleo de análise sem Electron e confere os vereditos
+npm run check      # typecheck + testes + verify, tudo de uma vez
 npm run build      # typecheck + build de produção
 npm run build:win  # gera instalador NSIS e versão portátil para Windows
 ```
+
+### Sobre os testes
+
+`npm test` roda em Node puro, sem subir o Electron, e cobre três camadas:
+
+- **lógica pura** — confiança, veredito, agrupamento de candidatos, migração
+  de configurações;
+- **extração** — endereços, localidades, domínios e telefones, incluindo os
+  casos que já quebraram na prática (`Rua do Ouvidor`, `Av. M 17`,
+  `Street View`, `Rio Claro, State of São Paulo`);
+- **imagens de verdade** — seis telas são renderizadas num navegador headless,
+  lidas pelo Tesseract real e passadas pela extração real. É o que separa "a
+  regex casa com esta string" de "o app lê este endereço nesta tela". Se não
+  houver Chromium na máquina, essa parte se declara pulada com o motivo, em
+  vez de falhar.
+
+`npm run test:live` acrescenta a resolução de lugares reais — Torre Eiffel,
+Cristo Redentor, Ponte Zhivopisny, Avenida Paulista, Rio Claro — contra o
+Nominatim e a Wikidata. A instância pública do Nominatim limita a 1 req/s,
+então a suíte é lenta de propósito; rodá-la várias vezes seguidas faz o
+serviço começar a recusar, e nesse caso os testes se declaram **pulados** com
+o motivo em vez de acusarem um defeito que não existe.
 
 **Funciona no primeiro clique, sem configurar nada e sem chave de API.** Os
 padrões já vêm em provedores reais:
@@ -86,7 +111,7 @@ Isso é reforçado por regras explícitas em
   levam no máximo a `ambiguous` em nível de país — o app diz "não consegui
   determinar a cidade".
 - Veredito `insufficient` **nunca** carrega coordenada. Isso é testado como
-  invariante em `npm run verify`.
+  invariante em `npm test` e em `npm run verify`.
 - A confiança tem teto de 95%: a imagem pode ser a foto de um cartaz, um filme
   ou um mapa aberto na tela, e nenhuma quantidade de pistas elimina esse
   resíduo.

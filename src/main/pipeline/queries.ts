@@ -63,11 +63,29 @@ const PREFIX_ALT = STREET_PREFIXES.flatMap((prefix) => [
 ]).join('|')
 
 /**
- * Nome do logradouro. O primeiro token aceita UMA letra ou dígito — sem isso,
- * "Av. M 17" e "Rua 5" não casariam, e nomes assim são a norma em cidades
- * planejadas brasileiras.
+ * Palavra do nome do logradouro: começa com maiúscula ou dígito.
+ *
+ * O dígito e a letra isolada importam — sem eles "Av. M 17" e "Rua 5" não
+ * casariam, e nomes assim são a norma em cidades planejadas brasileiras.
  */
-const STREET_NAME = `[A-ZÀ-Þ0-9][\\wÀ-ÿ'.-]*(?:\\s+[A-ZÀ-Þa-zà-ÿ0-9][\\wÀ-ÿ'.-]*){0,3}`
+const STREET_TOKEN = `[A-ZÀ-Þ0-9][\\wÀ-ÿ'.-]*`
+
+/**
+ * Conectivos que aparecem DENTRO de um nome de via: "Rua do Ouvidor",
+ * "Avenida das Nações Unidas", "Rua 25 de Março".
+ *
+ * Precisam de tratamento próprio porque são minúsculos. A versão anterior
+ * resolvia isso deixando qualquer palavra minúscula continuar o nome, e o
+ * preço eram os dois extremos ao mesmo tempo: "Rua Augusta fechada para
+ * obras" virava um endereço inteiro (consulta lixo), enquanto "Rua do
+ * Ouvidor" não casava de jeito nenhum — o nome tem que COMEÇAR por
+ * maiúscula, e "do" não começa. Aceitar a lista fechada de conectivos, e só
+ * ela, corrige os dois casos.
+ */
+const CONNECTIVE = `(?:d[aeiou]s?|del|des|du|la|las|le|les|el|los|y|von|van|der|den)`
+
+const STREET_NAME =
+  `(?:${CONNECTIVE}\\s+)?${STREET_TOKEN}(?:\\s+(?:${CONNECTIVE}\\s+)?${STREET_TOKEN}){0,3}`
 
 const STREET_RE = new RegExp(`\\b(?:${PREFIX_ALT})\\s+${STREET_NAME}`, 'g')
 
@@ -80,6 +98,20 @@ const STREET_RE = new RegExp(`\\b(?:${PREFIX_ALT})\\s+${STREET_NAME}`, 'g')
 const NUMBER_BEFORE_RE = /(?:^|\s)(\d{1,6})\s*$/
 /** Número predial depois do logradouro: "Rua 5, 240". */
 const NUMBER_AFTER_RE = /[,\s]+(\d{1,6})\s*$/
+
+/**
+ * Número predial grudado no fim do nome: "Av. Paulista 1578".
+ *
+ * Exige três dígitos ou mais. Um ou dois quase sempre SÃO o nome da via
+ * ("Av. M 17", "Rua 5"), e arrancá-los produziria um endereço que não existe.
+ */
+const TRAILING_NUMBER_RE = /\s+(\d{3,6})$/
+
+/**
+ * Em rodovia e estrada o número designa a VIA, não um imóvel: "Rodovia BR 116"
+ * não é o número 116 de uma rua chamada "Rodovia BR".
+ */
+const HIGHWAY_RE = /^(?:rodovia|estrada)\b/i
 
 /**
  * "Cidade, Região" numa linha própria — o formato que mapas, cabeçalhos de
@@ -172,14 +204,21 @@ export function extractOcrEvidence(ocr: OcrResult): Evidence[] {
     }
 
     for (const match of line.matchAll(STREET_RE)) {
-      const street = match[0]
+      const matched = match[0]
       const before = line.slice(0, match.index ?? 0)
-      const after = line.slice((match.index ?? 0) + street.length)
+      const after = line.slice((match.index ?? 0) + matched.length)
+
+      // O número que grudou no fim do nome sai dele e vira número predial.
+      const trailing = HIGHWAY_RE.test(matched) ? null : TRAILING_NUMBER_RE.exec(matched)
+      const street = trailing ? matched.slice(0, trailing.index) : matched
 
       // O número predial transforma um logradouro numa coordenada exata,
-      // então vale procurá-lo dos dois lados do nome da via.
+      // então vale procurá-lo dos três lados possíveis do nome da via.
       const number =
-        NUMBER_BEFORE_RE.exec(before)?.[1] ?? NUMBER_AFTER_RE.exec(after)?.[1] ?? null
+        NUMBER_BEFORE_RE.exec(before)?.[1] ??
+        trailing?.[1] ??
+        NUMBER_AFTER_RE.exec(after)?.[1] ??
+        null
 
       add(
         'street_sign',
@@ -216,21 +255,35 @@ export function mergeEvidence(ocrEvidence: Evidence[], visionEvidence: Evidence[
 
     const existing = byValue.get(key)
     if (!existing) {
-      byValue.set(key, evidence)
-      merged.push(evidence)
+      // Cópia deliberada: a fusão ajusta peso e detalhe, e mutar o objeto
+      // original alteraria também o `VisionResult` que é devolvido ao
+      // usuário como registro do que o modelo respondeu.
+      const copy = { ...evidence }
+      byValue.set(key, copy)
+      merged.push(copy)
       continue
     }
 
     if (existing.source !== evidence.source) {
       // Visto pelo OCR e pela visão: eleva o peso sem nunca chegar a 1.
       existing.weight = Math.min(0.95, existing.weight + (1 - existing.weight) * 0.4)
-      existing.detail = existing.detail
-        ? `${existing.detail} Confirmado também pelo ${evidence.source === 'ocr' ? 'OCR' : 'modelo de visão'}.`
-        : undefined
+      // A nota de corroboração é acrescentada mesmo quando a pista não tinha
+      // detalhe nenhum. Antes o `undefined` do ramo falso APAGAVA o campo, e
+      // o usuário perdia justamente a informação mais forte da lista: que
+      // duas fontes independentes viram a mesma coisa.
+      const note = `Confirmado também pelo ${SOURCE_LABEL[evidence.source]}.`
+      existing.detail = existing.detail ? `${existing.detail} ${note}` : note
     }
   }
 
   return merged
+}
+
+const SOURCE_LABEL: Record<Evidence['source'], string> = {
+  ocr: 'OCR',
+  title: 'título da janela',
+  vision: 'modelo de visão',
+  search: 'busca externa'
 }
 
 /**
@@ -256,8 +309,20 @@ export function buildQueries(
     countryCodeForLanguage(hint?.language) ??
     countryCodeFor(evidenceValueOfKind(evidence, 'flag'))
 
-  // Localidade lida na tela ganha do palpite do modelo.
-  const readLocality = evidence.find((item) => item.kind === 'locality')?.value
+  /*
+   * Localidade LIDA na tela ganha do palpite do modelo.
+   *
+   * O `find` precisa filtrar pela ORIGEM, não só pelo tipo: a lista fundida
+   * traz as pistas da visão primeiro, então procurar apenas por `locality`
+   * devolvia a cidade PALPITADA antes da cidade LIDA — o inverso exato da
+   * regra que o comentário anunciava.
+   */
+  const readLocality =
+    evidence.find(
+      (item) =>
+        item.kind === 'locality' && (item.source === 'ocr' || item.source === 'title')
+    )?.value ?? evidence.find((item) => item.kind === 'locality')?.value
+
   const cityContext = readLocality ?? hint?.city?.trim()
 
   const queries: GeoQuery[] = []
@@ -291,9 +356,14 @@ export function buildQueries(
   }
 
   /*
-   * Sem nenhuma pista dura, resolvemos ao menos o país. O veredito resultante
-   * é sempre 'ambíguo' — nunca 'localizado' —, então isto não abre caminho
-   * para cravar cidade a partir de sinal fraco.
+   * O país entra SEMPRE que o modelo arriscar um, não só quando não há pista
+   * dura. O veredito de uma resposta só de país é 'ambíguo' por construção —
+   * nunca 'localizado' —, então isto não abre caminho para cravar cidade a
+   * partir de sinal fraco; o que ele evita é o buraco em que uma pista dura
+   * que NÃO geocodifica (um monumento com nome errado, uma rua inexistente)
+   * derruba a análise inteira para "não sei", apagando um país que estava
+   * perfeitamente deduzido. Com prioridade 0,3 ele fica no fim da fila e só
+   * ocupa vaga que sobrou.
    *
    * A sustentação são TODAS as pistas moles, não só idioma e bandeira: numa
    * foto de estrada sem texto nem monumento — o caso comum — quem restringe o
@@ -301,13 +371,13 @@ export function buildQueries(
    * essas fora deixava a consulta sem nenhuma evidência atrás dela, e uma
    * consulta sem evidência pontua zero por construção.
    */
-  if (queries.length === 0 && hint?.country) {
+  if (hint?.country?.trim()) {
     const supporting = evidence
       .filter((item) => !HARD_EVIDENCE.has(item.kind))
       .map((item) => item.id)
 
     push(queries, seen, {
-      text: hint.country,
+      text: hint.country.trim(),
       countryHint,
       evidenceIds: supporting,
       priority: 0.3

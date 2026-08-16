@@ -125,6 +125,18 @@ export interface LocationCandidate {
    * rua é mais precisa, e é a precisão que decide onde cai o alfinete.
    */
   precision?: number
+  /**
+   * Posição na lista devolvida pelo geocodificador para esta consulta, a
+   * partir de 0.
+   *
+   * É o julgamento de relevância DELE, e é o único sinal que compara
+   * resultados de lugares diferentes de forma sensata. Nem `score` nem
+   * `precision` fazem isso: consultando "Rio Claro, São Paulo" o Nominatim
+   * devolve a cidade certa em primeiro e um bairro homônimo de São José dos
+   * Campos em terceiro — e o bairro tem precisão MAIOR, por ser um objeto
+   * mais específico. Sem a posição, o bairro ganhava.
+   */
+  rank?: number
   provider: string
   /** Qual consulta gerou este candidato (para auditoria). */
   query?: string

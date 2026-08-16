@@ -1,4 +1,5 @@
 import { createWorker, type Worker } from 'tesseract.js'
+import { app } from 'electron'
 import type { OcrProvider, ProviderContext } from '../types'
 import type { OcrResult } from '@shared/types'
 import { getSettings } from '../../settings'
@@ -23,6 +24,17 @@ export class TesseractOcrProvider implements OcrProvider {
 
     const { ocrLanguages } = getSettings()
     this.starting = createWorker(ocrLanguages, 1, {
+      /*
+       * Onde os `.traineddata` são gravados.
+       *
+       * O padrão do tesseract.js é o DIRETÓRIO DE TRABALHO do processo. Em
+       * desenvolvimento isso só suja a raiz do repositório com 7 MB; num app
+       * instalado o diretório de trabalho é a pasta do executável — em
+       * `C:\Program Files\...`, onde o usuário não tem permissão de escrita.
+       * O download falharia e o OCR simplesmente não subiria, na instalação
+       * limpa de quem acabou de instalar o app.
+       */
+      cachePath: app.getPath('userData'),
       // Silencia o progresso verboso do tesseract.js no console.
       logger: () => {}
     }).then((worker) => {

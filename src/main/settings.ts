@@ -161,3 +161,15 @@ export function updateSettings(patch: Partial<Settings>): Settings {
 export function defaultCaptureDir(): string {
   return join(app.getPath('pictures'), 'Visualizador')
 }
+
+/**
+ * Esvazia o cache em memória.
+ *
+ * Existe para os testes: a migração só roda na PRIMEIRA leitura, então testar
+ * v1→v3 exige poder voltar ao estado de app recém-aberto sem reiniciar o
+ * processo. Em produção nada chama isto — o cache é justamente o que evita
+ * reler o disco a cada consulta de configuração.
+ */
+export function __resetSettingsCacheForTests(): void {
+  cached = null
+}
